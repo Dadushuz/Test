@@ -1,10 +1,6 @@
 import logging
 import asyncio
 import os
-
-# Render Environment Variables bo'limidan olinadi
-
-
 import sqlite3
 import json
 from datetime import datetime
@@ -18,6 +14,7 @@ from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.getenv("BOT_TOKEN") 
 ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
+
 app = FastAPI()
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -26,14 +23,11 @@ dp = Dispatcher()
 def init_db():
     conn = sqlite3.connect('quiz.db')
     cursor = conn.cursor()
-    # Testlar jadvali
     cursor.execute('''CREATE TABLE IF NOT EXISTS tests 
         (code TEXT PRIMARY KEY, title TEXT, duration INTEGER)''')
-    # Savollar jadvali
     cursor.execute('''CREATE TABLE IF NOT EXISTS questions 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, test_code TEXT, 
          question TEXT, options TEXT, correct_answer TEXT)''')
-    # Natijalar jadvali
     cursor.execute('''CREATE TABLE IF NOT EXISTS results 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, user_name TEXT, 
          nickname TEXT, test_code TEXT, test_title TEXT, score INTEGER, total INTEGER, date TEXT)''')
@@ -43,11 +37,13 @@ def init_db():
 init_db()
 
 # 3. STATIC FAYLLAR VA SERVER
-if not os.path.exists("static"): os.makedirs("static")
+if not os.path.exists("static"): 
+    os.makedirs("static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
-async def root(): return {"status": "IKRAMOV BIOLOGIYA server ishlayapti"}
+async def root(): 
+    return {"status": "IKRAMOV BIOLOGIYA server ishlayapti"}
 
 @app.get("/get_test/{code}")
 async def get_test(code: str):
@@ -55,7 +51,9 @@ async def get_test(code: str):
     cursor = conn.cursor()
     cursor.execute("SELECT title, duration FROM tests WHERE code=?", (code,))
     test = cursor.fetchone()
-    if not test: return {"error": "Topilmadi"}
+    if not test: 
+        conn.close()
+        return {"error": "Topilmadi"}
     cursor.execute("SELECT question, options, correct_answer FROM questions WHERE test_code=?", (code,))
     questions = [{"q": q[0], "o": json.loads(q[1]), "a": q[2]} for q in cursor.fetchall()]
     conn.close()
@@ -64,33 +62,34 @@ async def get_test(code: str):
 # 4. ADMIN VA USER BUYRUQLARI
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    # SIZNING YANGI MANZILINGIZ:
     web_url = "https://test-fzug.onrender.com/static/index.html"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=web_url))
     ]])
     await message.answer(
-        f"Assalomu alaykum {message.from_user.first_name}!\n\n"
+        f"Assalomu alaykum <b>{message.from_user.first_name}</b>!\n\n"
         "IKRAMOV BIOLOGIYA test platformasiga xush kelibsiz. "
         "Testni boshlash uchun quyidagi tugmani bosing:", 
-        reply_markup=kb
+        reply_markup=kb,
+        parse_mode="HTML"
     )
 
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
     text = (
-        "🛠 **IKRAMOV BIOLOGIYA | ADMIN PANEL**\n\n"
-        "🔸 **Test yuklash (Bulk):**\n`kod | fan | vaqt` (keyingi qatordan savollar)\n\n"
-        "🔸 **Buyruqlar:**\n"
+        "<b>🛠 IKRAMOV BIOLOGIYA | ADMIN PANEL</b>\n\n"
+        "<b>🔸 Test yuklash (Bulk):</b>\n"
+        "<code>kod | fan | vaqt</code>\n(savollar keyingi qatordan)\n\n"
+        "<b>🔸 Buyruqlar:</b>\n"
         "/tests - Barcha testlar ro'yxati\n"
         "/stat - Oxirgi natijalarni ko'rish\n"
         "/del_test [kod] - Testni o'chirish"
     )
-    await message.answer(text, parse_mode="Markdown")
+    await message.answer(text, parse_mode="HTML")
 
-# 5. TESTLARNI YUKLASH VA YANGILASH
+# 5. TESTLARNI YUKLASH
 @dp.message(F.text.contains("|"))
 async def handle_bulk_data(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
@@ -115,11 +114,13 @@ async def handle_bulk_data(message: types.Message):
                                    (test_code, q_text, opts, q_p[2].strip()))
                     count += 1
         conn.commit()
-        await message.answer(f"✅ **{title}** muvaffaqiyatli saqlandi!\n📝 Jami savollar: {count} ta.")
-    except Exception as e: await message.answer(f"❌ Xato yuz berdi: {e}")
-    finally: conn.close()
+        await message.answer(f"✅ <b>{title}</b> saqlandi!\n📝 Jami savollar: {count} ta.", parse_mode="HTML")
+    except Exception as e: 
+        await message.answer(f"❌ Xato: {e}")
+    finally: 
+        conn.close()
 
-# 6. TESTLARNI BOSHQARISH (RO'YXAT VA O'CHIRISH)
+# 6. BOSHQARUV
 @dp.message(Command("tests"))
 async def list_tests(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
@@ -128,26 +129,28 @@ async def list_tests(message: types.Message):
     cursor.execute("SELECT code, title FROM tests")
     rows = cursor.fetchall()
     conn.close()
-    if not rows: return await message.answer("Bazangiz hozircha bo'sh.")
-    msg = "📋 **Mavjud testlar:**\n" + "\n".join([f"`{r[0]}` - {r[1]}" for r in rows])
-    await message.answer(msg, parse_mode="Markdown")
+    if not rows: return await message.answer("Baza bo'sh.")
+    msg = "📋 <b>Mavjud testlar:</b>\n\n" + "\n".join([f"<code>{r[0]}</code> - {r[1]}" for r in rows])
+    await message.answer(msg, parse_mode="HTML")
 
 @dp.message(F.text.startswith("/del_test"))
 async def delete_test(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
     try:
-        code = message.text.split()[-1]
+        parts = message.text.split()
+        if len(parts) < 2: raise ValueError
+        code = parts[-1]
         conn = sqlite3.connect('quiz.db')
         cursor = conn.cursor()
         cursor.execute("DELETE FROM tests WHERE code=?", (code,))
         cursor.execute("DELETE FROM questions WHERE test_code=?", (code,))
         conn.commit()
         conn.close()
-        await message.answer(f"🗑 Test `{code}` va uning savollari bazadan o'chirildi.")
+        await message.answer(f"🗑 Test <code>{code}</code> o'chirildi.", parse_mode="HTML")
     except:
-        await message.answer("Format: `/del_test kod`")
+        await message.answer("Format: <code>/del_test kod</code>", parse_mode="HTML")
 
-# 7. NATIJALARNI KO'RISH
+# 7. NATIJALAR
 @dp.message(Command("stat"))
 async def show_stats(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
@@ -156,14 +159,14 @@ async def show_stats(message: types.Message):
     cursor.execute("SELECT user_name, nickname, test_title, score, total, date FROM results ORDER BY id DESC LIMIT 20")
     rows = cursor.fetchall()
     conn.close()
-    if not rows: return await message.answer("Natijalar hali mavjud emas.")
+    if not rows: return await message.answer("Natijalar yo'q.")
     
-    text = "📊 **So'nggi 20 ta natija:**\n\n"
+    text = "📊 <b>So'nggi 20 ta natija:</b>\n\n"
     for r in rows:
         text += f"👤 {r[0]} ({r[1]})\n📚 {r[2]}: {r[3]}/{r[4]}\n📅 {r[5]}\n" + "-"*15 + "\n"
-    await message.answer(text)
+    await message.answer(text, parse_mode="HTML")
 
-# 8. WEB APP NATIJALARINI QABUL QILISH
+# 8. WEB APP NATIJA QABUL QILISH
 @dp.message(F.web_app_data)
 async def result_handler(message: types.Message):
     data = json.loads(message.web_app_data.data)
@@ -179,24 +182,21 @@ async def result_handler(message: types.Message):
     conn.close()
 
     admin_report = (
-        f"🔔 **YANGI NATIJA**\n\n"
+        f"🔔 <b>YANGI NATIJA</b>\n\n"
         f"👤 O'quvchi: {user_name}\n"
         f"🆔 Username: {nickname}\n"
-        f"📚 Test: {data['title']} ({data['code']})\n"
+        f"📚 Test: {data['title']}\n"
         f"🎯 Ball: {data['score']} / {data['total']}\n"
         f"📅 Sana: {now}"
     )
-    await bot.send_message(ADMIN_ID, admin_report, parse_mode="Markdown")
+    await bot.send_message(ADMIN_ID, admin_report, parse_mode="HTML")
     await message.answer(f"🏁 Test tugadi! Ballingiz: {data['score']}/{data['total']}")
 
-# 9. ASOSIY QISIM - TO'G'IRLANGAN VARIANT
+# 9. RUNNERS
 async def run_bot():
-    try:
-        logging.info("Bot ishga tushdi...")
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
-    except Exception as e:
-        logging.error(f"Botda xato: {e}")
+    logging.info("Bot ishga tushdi...")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 async def run_server():
     import uvicorn
@@ -204,19 +204,7 @@ async def run_server():
     server = uvicorn.Server(config)
     await server.serve()
 
-# ... (yuqoridagi kodlar o'zgarishsiz qoladi)
-
 async def main():
-    # Ikkala vazifani ham bir vaqtda ishga tushiramiz
-    logging.info("Server va Bot ishga tushmoqda...")
     await asyncio.gather(
         run_bot(),
         run_server()
-    )
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Dastur to'xtatildi")
-        
