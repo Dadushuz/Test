@@ -1,109 +1,99 @@
 <!DOCTYPE html>
-<html>
+<html lang="uz">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { font-family: sans-serif; background: #f4f7f9; padding: 20px; display: flex; justify-content: center; }
-        .card { background: white; width: 100%; max-width: 400px; padding: 25px; border-radius: 20px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        input { width: 90%; padding: 12px; margin: 15px 0; border: 2px solid #eee; border-radius: 10px; font-size: 16px; outline: none; }
-        .btn { background: #0088cc; color: white; border: none; padding: 15px; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
+        body { font-family: sans-serif; background: #f0f2f5; padding: 20px; -webkit-user-select: none; user-select: none; }
+        .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
+        input { width: 100%; padding: 15px; margin: 15px 0; border: 2px solid #eee; border-radius: 12px; box-sizing: border-box; }
+        .btn { background: #0088cc; color: white; border: none; padding: 15px; border-radius: 12px; width: 100%; font-weight: bold; cursor: pointer; }
+        .opt { display: block; width: 100%; margin: 10px 0; padding: 15px; background: #fff; border: 2px solid #f0f3f5; border-radius: 12px; text-align: left; cursor: pointer; }
         .hidden { display: none; }
-        .opt { display: block; width: 100%; margin: 10px 0; padding: 12px; background: #fff; border: 2px solid #eee; border-radius: 10px; text-align: left; cursor: pointer; }
         #timer { font-size: 24px; color: #e74c3c; font-weight: bold; margin-bottom: 10px; }
-        #bar { height: 6px; background: #2ecc71; width: 0%; transition: 0.3s; margin-bottom: 15px; border-radius: 3px; }
+        #bar { height: 8px; background: #2ecc71; width: 0%; transition: 0.4s; border-radius: 10px; }
     </style>
 </head>
 <body>
-    <div class="card">
+    <div id="app" class="card">
         <div id="home">
             <h2>IKRAMOV BIOLOGIYA</h2>
-            <input type="number" id="testCode" placeholder="Test kodini kiriting" inputmode="numeric">
-            <button class="btn" onclick="start()">BOSHLASH</button>
+            <input type="number" id="testCode" placeholder="Test kodi" inputmode="numeric">
+            <button class="btn" onclick="startQuiz()">BOSHLASH</button>
         </div>
         <div id="quiz" class="hidden">
             <div id="timer">00:00</div>
-            <div style="background: #eee; width: 100%; height: 6px; border-radius: 3px;"><div id="bar"></div></div>
-            <h3 id="question" style="text-align: left;"></h3>
+            <div style="background: #eee; height: 8px; border-radius: 10px; margin-bottom: 20px;"><div id="bar"></div></div>
+            <div id="question" style="text-align: left; font-size: 18px; margin-bottom: 20px;"></div>
             <div id="options"></div>
         </div>
         <div id="result" class="hidden">
-            <h2 style="color: #2ecc71;">TUGADI!</h2>
-            <p style="font-size: 40px; font-weight: bold;" id="scoreText"></p>
-            <p>Natijangiz adminga yuborildi.</p>
+            <h2 style="color: #2ecc71;">TUGADI</h2>
+            <div id="scoreDisplay" style="font-size: 40px; font-weight: bold; margin: 20px 0;"></div>
+            <p>Natijangiz saqlandi.</p>
         </div>
     </div>
 
     <script>
         let tg = window.Telegram.WebApp;
         tg.expand();
-        let currentTest, userAnswers = [], idx = 0, timer;
+        let currentTest, userAnswers = [], idx = 0, timerInterval;
 
-        async function start() {
+        // Screenshotga qarshi: Fokus yo'qolganda xiralashtirish
+        window.onblur = () => document.getElementById('app').style.filter = 'blur(15px)';
+        window.onfocus = () => document.getElementById('app').style.filter = 'none';
+        document.addEventListener('contextmenu', e => e.preventDefault());
+
+        async function startQuiz() {
             const code = document.getElementById('testCode').value;
-            if(!code) return;
-            const res = await fetch('/get_test/' + code);
+            const res = await fetch(`/get_test/${code}`);
             const data = await res.json();
             if(data.error) return alert("Test topilmadi!");
-            
             currentTest = data;
             document.getElementById('home').classList.add('hidden');
             document.getElementById('quiz').classList.remove('hidden');
-            
-            let sec = data.time * 60;
-            timer = setInterval(() => {
-                let m = Math.floor(sec/60), s = sec%60;
-                document.getElementById('timer').innerText = (m<10?'0':'')+m+":"+(s<10?'0':'')+s;
-                if(sec-- <= 0) finish();
-            }, 1000);
-            showQ(0);
+            startTimer(data.time);
+            showQuestion(0);
         }
 
-        function showQ(n) {
+        function startTimer(m) {
+            let s = m * 60;
+            timerInterval = setInterval(() => {
+                let min = Math.floor(s/60), sec = s%60;
+                document.getElementById('timer').innerText = `${min<10?'0':''}${min}:${sec<10?'0':''}${sec}`;
+                if(s-- <= 0) finishQuiz();
+            }, 1000);
+        }
+
+        function showQuestion(n) {
             idx = n;
             const q = currentTest.questions[n];
-            document.getElementById('question').innerText = (n+1) + ". " + q.q;
             document.getElementById('bar').style.width = (n / currentTest.questions.length * 100) + "%";
+            document.getElementById('question').innerText = `${n+1}. ${q.q}`;
             const optDiv = document.getElementById('options');
             optDiv.innerHTML = "";
             q.o.forEach(o => {
                 const b = document.createElement('button');
                 b.className = "opt"; b.innerText = o;
-                b.onclick = () => {
-                    userAnswers[n] = o;
-                    if(n+1 < currentTest.questions.length) showQ(n+1);
-                    else finish();
-                };
+                b.onclick = () => { userAnswers[n] = o; (n+1 < currentTest.questions.length) ? showQuestion(n+1) : finishQuiz(); };
                 optDiv.appendChild(b);
             });
         }
 
-        async function finish() {
-            clearInterval(timer);
+        async function finishQuiz() {
+            clearInterval(timerInterval);
             let score = 0;
             currentTest.questions.forEach((q, i) => { if(userAnswers[i] === q.a) score++; });
-            
             const user = tg.initDataUnsafe.user || {};
             const resData = {
-                user_id: user.id || 0,
-                user_name: (user.first_name || "Noma'lum") + (user.last_name ? " " + user.last_name : ""),
-                nickname: user.username ? "@" + user.username : "Yo'q",
-                score: score, total: currentTest.questions.length,
-                code: document.getElementById('testCode').value,
-                title: currentTest.title
+                user_id: user.id, user_name: user.first_name, nickname: user.username || "Yo'q",
+                score: score, total: currentTest.questions.length, code: document.getElementById('testCode').value, title: currentTest.title
             };
-
             document.getElementById('quiz').classList.add('hidden');
             document.getElementById('result').classList.remove('hidden');
-            document.getElementById('scoreText').innerText = score + " / " + resData.total;
-
-            await fetch('/submit_result', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(resData)
-            });
-            
+            document.getElementById('scoreDisplay').innerText = `${score} / ${resData.total}`;
+            await fetch('/submit_result', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(resData) });
             tg.sendData(JSON.stringify(resData));
             setTimeout(() => tg.close(), 3000);
         }
