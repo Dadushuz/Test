@@ -1,124 +1,95 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>IKRAMOV BIOLOGIYA</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        :root {
-            --bg-color: #f0f2f5;
-            --card-bg: #ffffff;
-            --accent: #0088cc;
-            --text: #2c3e50;
-            --success: #27ae60;
-            --danger: #e74c3c;
+        body { font-family: sans-serif; background: #f0f2f5; display: flex; justify-content: center; padding: 20px; }
+        .card { background: white; width: 100%; max-width: 400px; padding: 20px; border-radius: 15px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        input { width: 80%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; }
+        button { background: #0088cc; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; width: 85%; font-weight: bold; }
+        .hidden { display: none; }
+        .opt { display: block; width: 100%; margin: 5px 0; padding: 10px; background: #f8f9fa; border: 1px solid #eee; border-radius: 8px; text-align: left; }
+    </style>
+</head>
+<body>
+    <div id="app" class="card">
+        <div id="home">
+            <h2>Test Tizimi</h2>
+            <input type="number" id="code" placeholder="Kod (Masalan: 505)">
+            <button onclick="start()">Boshlash</button>
+        </div>
+        <div id="quiz" class="hidden">
+            <div id="timer" style="font-size: 24px; color: red; font-weight: bold;"></div>
+            <h3 id="question"></h3>
+            <div id="options"></div>
+        </div>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        let currentTest, timer, answers = [], idx = 0;
+
+        async function start() {
+            const code = document.getElementById('code').value;
+            if(!code) return alert("Kodni yozing");
+
+            try {
+                // Manzilni to'liq tekshirish uchun:
+                const res = await fetch('/get_test/' + code);
+                const data = await res.json();
+
+                if(data.error) return alert("Test topilmadi");
+
+                currentTest = data;
+                document.getElementById('home').classList.add('hidden');
+                document.getElementById('quiz').classList.remove('hidden');
+                
+                let sec = data.time * 60;
+                timer = setInterval(() => {
+                    let m = Math.floor(sec/60), s = sec%60;
+                    document.getElementById('timer').innerText = m + ":" + (s<10?'0':'') + s;
+                    if(sec-- <= 0) finish();
+                }, 1000);
+
+                showQ(0);
+            } catch(e) {
+                alert("Xato: " + e.message);
+            }
         }
 
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text);
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            -webkit-user-select: none;
+        function showQ(n) {
+            idx = n;
+            const q = currentTest.questions[n];
+            document.getElementById('question').innerText = q.q;
+            const optDiv = document.getElementById('options');
+            optDiv.innerHTML = "";
+            q.o.forEach(o => {
+                const b = document.createElement('button');
+                b.className = "opt";
+                b.innerText = o;
+                b.onclick = () => {
+                    answers[n] = o;
+                    if(n + 1 < currentTest.questions.length) showQ(n+1);
+                    else finish();
+                };
+                optDiv.appendChild(b);
+            });
         }
 
-        .card {
-            background: var(--card-bg);
-            width: 90%;
-            max-width: 400px;
-            padding: 30px;
-            border-radius: 24px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            text-align: center;
-            box-sizing: border-box;
-        }
-
-        h2 { color: var(--accent); margin-bottom: 10px; }
-        p { color: #7f8c8d; font-size: 14px; }
-
-        input {
-            width: 100%;
-            padding: 15px;
-            margin: 20px 0;
-            border: 2px solid #eee;
-            border-radius: 12px;
-            font-size: 18px;
-            box-sizing: border-box;
-            outline: none;
-            transition: 0.3s;
-        }
-
-        input:focus { border-color: var(--accent); }
-
-        .main-btn {
-            background: var(--accent);
-            color: white;
-            border: none;
-            width: 100%;
-            padding: 16px;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-
-        #timer {
-            font-size: 32px;
-            font-weight: 800;
-            color: var(--danger);
-            margin-bottom: 15px;
-        }
-
-        .q-text {
-            font-size: 18px;
-            font-weight: 600;
-            text-align: left;
-            margin-bottom: 20px;
-            line-height: 1.5;
-        }
-
-        .options-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .opt-btn {
-            background: #f8f9fa;
-            border: 2px solid #eee;
-            padding: 14px;
-            border-radius: 12px;
-            text-align: left;
-            font-size: 15px;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-
-        .opt-btn:active {
-            background: #e1f5fe;
-            border-color: var(--accent);
-        }
-
-        .progress {
-            width: 100%;
-            height: 6px;
-            background: #eee;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            overflow: hidden;
-        }
-
-        #progress-bar {
-            width: 0%;
-            height: 100%;
-            background: var(--success);
-            transition: 0.3s;
-        }
-
-        .hidden {
+        function finish() {
+            clearInterval(timer);
+            let score = 0;
+            currentTest.questions.forEach((q, i) => { if(answers[i] === q.a) score++; });
             
+            const result = { score: score, total: currentTest.questions.length, code: document.getElementById('code').value, title: currentTest.title };
+            
+            tg.sendData(JSON.stringify(result));
+            document.getElementById('quiz').innerHTML = "<h2>Tugadi!</h2><h3>Ball: " + score + "</h3>";
+            setTimeout(() => tg.close(), 2000);
+        }
+    </script>
+</body>
+</html>
