@@ -1,233 +1,111 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>IKRAMOV BIOLOGIYA Test Platformasi</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { 
-            font-family: 'Segoe UI', Roboto, sans-serif; 
-            background: #f0f2f5; 
-            display: flex; 
-            justify-content: center; 
-            align-items: flex-start;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-            color: #333;
-        }
-        .card { 
-            background: white; 
-            width: 100%; 
-            max-width: 450px; 
-            padding: 25px; 
-            border-radius: 20px; 
-            text-align: center; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.08); 
-        }
-        h2 { color: #0088cc; margin-bottom: 5px; }
-        .brand-sub { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 20px; letter-spacing: 1px; }
-        
-        /* Kirish qismi */
-        input { 
-            width: 100%; 
-            padding: 15px; 
-            margin: 15px 0; 
-            border: 2px solid #eef2f5; 
-            border-radius: 12px; 
-            font-size: 18px;
-            box-sizing: border-box;
-            outline: none;
-            transition: 0.3s;
-        }
-        input:focus { border-color: #0088cc; }
-        
-        .start-btn { 
-            background: #0088cc; color: white; border: none; padding: 16px; 
-            border-radius: 12px; cursor: pointer; width: 100%; 
-            font-weight: bold; font-size: 16px; transition: 0.3s;
-        }
-        .start-btn:hover { background: #0077b5; }
-
-        /* Test qismi */
+        body { font-family: sans-serif; background: #f4f7f9; padding: 20px; display: flex; justify-content: center; }
+        .card { background: white; width: 100%; max-width: 400px; padding: 25px; border-radius: 20px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        input { width: 90%; padding: 12px; margin: 15px 0; border: 2px solid #eee; border-radius: 10px; font-size: 16px; outline: none; }
+        .btn { background: #0088cc; color: white; border: none; padding: 15px; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
         .hidden { display: none; }
-        #timer { font-size: 28px; color: #e74c3c; font-weight: bold; margin-bottom: 15px; }
-        
-        .progress-container {
-            height: 8px; background: #eee; width: 100%; 
-            border-radius: 10px; margin-bottom: 20px; overflow: hidden;
-        }
-        #bar { height: 100%; background: #2ecc71; width: 0%; transition: 0.4s; }
-
-        #question { text-align: left; font-size: 18px; line-height: 1.4; margin-bottom: 20px; }
-        
-        .opt { 
-            display: block; width: 100%; margin: 10px 0; padding: 15px; 
-            background: #fff; border: 2px solid #f0f3f5; border-radius: 12px; 
-            text-align: left; font-size: 16px; cursor: pointer; transition: 0.2s;
-        }
-        .opt:hover { border-color: #0088cc; background: #faffff; }
-        .opt:active { transform: scale(0.98); background: #e1f5fe; }
-
-        /* Natija qismi */
-        .score-num { font-size: 48px; font-weight: 900; color: #2c3e50; margin: 15px 0; }
-        .success-msg { color: #2ecc71; font-weight: bold; }
+        .opt { display: block; width: 100%; margin: 10px 0; padding: 12px; background: #fff; border: 2px solid #eee; border-radius: 10px; text-align: left; cursor: pointer; }
+        #timer { font-size: 24px; color: #e74c3c; font-weight: bold; margin-bottom: 10px; }
+        #bar { height: 6px; background: #2ecc71; width: 0%; transition: 0.3s; margin-bottom: 15px; border-radius: 3px; }
     </style>
 </head>
 <body>
-
-    <div id="app" class="card">
+    <div class="card">
         <div id="home">
             <h2>IKRAMOV BIOLOGIYA</h2>
-            <div class="brand-sub">Sifatli ta'lim platformasi</div>
-            <p>Test kodini kiriting:</p>
-            <input type="number" id="testCode" placeholder="Masalan: 001" inputmode="numeric">
-            <button class="start-btn" onclick="startQuiz()">TESTNI BOSHLASH</button>
+            <input type="number" id="testCode" placeholder="Test kodini kiriting" inputmode="numeric">
+            <button class="btn" onclick="start()">BOSHLASH</button>
         </div>
-
         <div id="quiz" class="hidden">
             <div id="timer">00:00</div>
-            <div class="progress-container">
-                <div id="bar"></div>
-            </div>
-            <div id="question"></div>
+            <div style="background: #eee; width: 100%; height: 6px; border-radius: 3px;"><div id="bar"></div></div>
+            <h3 id="question" style="text-align: left;"></h3>
             <div id="options"></div>
         </div>
-
         <div id="result" class="hidden">
-            <h2 class="success-msg">TEST YAKUNLANDI</h2>
-            <div class="score-num" id="displayScore">0 / 0</div>
-            <p id="statusMsg">Natijangiz adminga yuborilmoqda...</p>
+            <h2 style="color: #2ecc71;">TUGADI!</h2>
+            <p style="font-size: 40px; font-weight: bold;" id="scoreText"></p>
+            <p>Natijangiz adminga yuborildi.</p>
         </div>
     </div>
 
     <script>
         let tg = window.Telegram.WebApp;
-        tg.expand(); // WebApp oynasini to'liq ochish
+        tg.expand();
+        let currentTest, userAnswers = [], idx = 0, timer;
 
-        let currentTest = null;
-        let userAnswers = [];
-        let currentIndex = 0;
-        let timerInterval = null;
-
-        // 1. Testni boshlash
-        async function startQuiz() {
+        async function start() {
             const code = document.getElementById('testCode').value;
-            if(!code) return alert("Iltimos, test kodini kiriting!");
-
-            try {
-                const response = await fetch(`/get_test/${code}`);
-                const data = await response.json();
-
-                if(data.error) return alert("Xato: Test topilmadi!");
-
-                currentTest = data;
-                document.getElementById('home').classList.add('hidden');
-                document.getElementById('quiz').classList.remove('hidden');
-
-                startTimer(data.time);
-                showQuestion(0);
-            } catch (error) {
-                alert("Server bilan bog'lanishda xato!");
-            }
-        }
-
-        // 2. Taymerni ishga tushirish
-        function startTimer(minutes) {
-            let seconds = minutes * 60;
-            timerInterval = setInterval(() => {
-                let m = Math.floor(seconds / 60);
-                let s = seconds % 60;
-                document.getElementById('timer').innerText = 
-                    `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-                
-                if (seconds <= 0) {
-                    finishQuiz();
-                }
-                seconds--;
+            if(!code) return;
+            const res = await fetch('/get_test/' + code);
+            const data = await res.json();
+            if(data.error) return alert("Test topilmadi!");
+            
+            currentTest = data;
+            document.getElementById('home').classList.add('hidden');
+            document.getElementById('quiz').classList.remove('hidden');
+            
+            let sec = data.time * 60;
+            timer = setInterval(() => {
+                let m = Math.floor(sec/60), s = sec%60;
+                document.getElementById('timer').innerText = (m<10?'0':'')+m+":"+(s<10?'0':'')+s;
+                if(sec-- <= 0) finish();
             }, 1000);
+            showQ(0);
         }
 
-        // 3. Savolni ko'rsatish
-        function showQuestion(index) {
-            currentIndex = index;
-            const qData = currentTest.questions[index];
-            
-            // Progress bar yangilash
-            const progress = ((index) / currentTest.questions.length) * 100;
-            document.getElementById('bar').style.width = progress + "%";
-
-            // Savol matni
-            document.getElementById('question').innerHTML = `<b>${index + 1}.</b> ${qData.q}`;
-
-            // Variantlar
-            const optionsDiv = document.getElementById('options');
-            optionsDiv.innerHTML = "";
-            
-            qData.o.forEach(option => {
-                const btn = document.createElement('button');
-                btn.className = "opt";
-                btn.innerText = option;
-                btn.onclick = () => {
-                    userAnswers[index] = option;
-                    if (index + 1 < currentTest.questions.length) {
-                        showQuestion(index + 1);
-                    } else {
-                        finishQuiz();
-                    }
+        function showQ(n) {
+            idx = n;
+            const q = currentTest.questions[n];
+            document.getElementById('question').innerText = (n+1) + ". " + q.q;
+            document.getElementById('bar').style.width = (n / currentTest.questions.length * 100) + "%";
+            const optDiv = document.getElementById('options');
+            optDiv.innerHTML = "";
+            q.o.forEach(o => {
+                const b = document.createElement('button');
+                b.className = "opt"; b.innerText = o;
+                b.onclick = () => {
+                    userAnswers[n] = o;
+                    if(n+1 < currentTest.questions.length) showQ(n+1);
+                    else finish();
                 };
-                optionsDiv.appendChild(btn);
+                optDiv.appendChild(b);
             });
         }
 
-        // 4. Testni tugatish va natijani yuborish
-        async function finishQuiz() {
-            clearInterval(timerInterval);
+        async function finish() {
+            clearInterval(timer);
+            let score = 0;
+            currentTest.questions.forEach((q, i) => { if(userAnswers[i] === q.a) score++; });
             
-            let correctCount = 0;
-            currentTest.questions.forEach((q, i) => {
-                if (userAnswers[i] === q.a) correctCount++;
-            });
-
-            const totalQ = currentTest.questions.length;
-            
-            // Sahifani almashtirish
-            document.getElementById('quiz').classList.add('hidden');
-            document.getElementById('result').classList.remove('hidden');
-            document.getElementById('displayScore').innerText = `${correctCount} / ${totalQ}`;
-
-            // Telegram foydalanuvchi ma'lumotlari
             const user = tg.initDataUnsafe.user || {};
-            const resultData = {
+            const resData = {
                 user_id: user.id || 0,
                 user_name: (user.first_name || "Noma'lum") + (user.last_name ? " " + user.last_name : ""),
                 nickname: user.username ? "@" + user.username : "Yo'q",
-                score: correctCount,
-                total: totalQ,
+                score: score, total: currentTest.questions.length,
                 code: document.getElementById('testCode').value,
                 title: currentTest.title
             };
 
-            // 1-Yo'l: To'g'ridan-to'g'ri Backend API ga yuborish (Eng ishonchli)
-            try {
-                await fetch('/submit_result', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(resultData)
-                });
-                document.getElementById('statusMsg').innerText = "Natijangiz muvaffaqiyatli saqlandi!";
-            } catch (e) {
-                document.getElementById('statusMsg').innerText = "Natija yuborishda xato, lekin botga jo'natildi.";
-            }
+            document.getElementById('quiz').classList.add('hidden');
+            document.getElementById('result').classList.remove('hidden');
+            document.getElementById('scoreText').innerText = score + " / " + resData.total;
 
-            // 2-Yo'l: Telegram sendData (Zaxira)
-            tg.sendData(JSON.stringify(resultData));
-
-            // 3 soniyadan keyin WebAppni yopish
-            setTimeout(() => {
-                tg.close();
-            }, 4000);
+            await fetch('/submit_result', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(resData)
+            });
+            
+            tg.sendData(JSON.stringify(resData));
+            setTimeout(() => tg.close(), 3000);
         }
     </script>
 </body>
