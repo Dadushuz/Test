@@ -1,9 +1,9 @@
-import logging
-import asyncio
 import os
 import json
 import re
-import psycopg2
+import asyncio
+import logging
+import asyncpg
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -12,466 +12,150 @@ from aiogram.filters import Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 import uvicorn
 
-# ======================================================
-# 1. SOZLAMALAR VA KONFIGURATSIYA
-# ======================================================
-
-logging.basicConfig(level=logging.INFO)
-
-# Bot Tokeni (Render Environment Variables dan olinadi)
+# --- SOZLAMALAR ---
 TOKEN = os.getenv("BOT_TOKEN")
-
-# Admin ID (Raqam formatida ekanligini tekshiramiz)
-try:
-    ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
-except:
-    ADMIN_ID = 129932291  # Agar xato bo'lsa, standart ID
-
-# WebApp manzili
+ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
+DATABASE_URL = os.getenv("DATABASE_URL") # Renderda Environment Variablega qo'shing!
 WEBAPP_URL = "https://test-fzug.onrender.com/static/index.html"
 
-# ✅ SUPABASE ULANISH HAVOLASI (Port 6543 - Transaction Pooler)
-# Bu havola Renderda "Network unreachable" xatosini oldini oladi.
-DATABASE_URL = "postgresql://postgres.zvtrujwsydewfcaotwvx:rkbfVJlp96S85bnu@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
-
+# --- OBYEKTLAR ---
 app = FastAPI()
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+db_pool = None # Baza hovuzi
 
-# ======================================================
-# 2. YORDAMCHI FUNKSIYALAR
-# ======================================================
+# --- YORDAMCHI FUNKSIYALAR ---
+def clean(text):
+    return re.sub(r'<.*?>', '', str(text)).replace('<', '&lt;').replace('>', '&gt;') if text else ""
 
-def clean_html(text):
-    """
-    Telegram HTML formatidagi xatoliklarni oldini olish uchun.
-    < va > belgilarini xavfsiz formatga o'tkazadi va teglarni tozalaydi.
-    """
-    if not text: return ""
-    text = str(text)
-    # Barcha mavjud HTML teglarni olib tashlaymiz (xavfsizlik uchun)
-    clean = re.compile('<.*?>')
-    text = re.sub(clean, '', text)
-    # Belgi almashtirish
-    return text.replace("<", "&lt;").replace(">", "&gt;")
+@app.on_event("startup")
+async def startup():
+    global db_pool
+    # Bazaga ulanish va jadvallarni yaratish
+    db_pool = await asyncpg.create_pool(DATABASE_URL)
+    async with db_pool.acquire() as conn:
+        await conn.execute('''CREATE TABLE IF NOT EXISTS tests (code TEXT PRIMARY KEY, title TEXT, duration INTEGER)''')
+        await conn.execute('''CREATE TABLE IF NOT EXISTS questions (id SERIAL PRIMARY KEY, test_code TEXT, question TEXT, options TEXT, correct_answer TEXT)''')
+        await conn.execute('''CREATE TABLE IF NOT EXISTS results (id SERIAL PRIMARY KEY, user_id BIGINT, user_name TEXT, nickname TEXT, test_code TEXT, test_title TEXT, score INTEGER, total INTEGER, date TEXT)''')
+        await conn.execute('''CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY, invited_by BIGINT, invite_count INTEGER DEFAULT 0, joined_at TEXT)''')
 
-def get_db_connection():
-    """Supabase bazasiga ulanish funksiyasi"""
-    return psycopg2.connect(DATABASE_URL)
+@app.on_event("shutdown")
+async def shutdown():
+    if db_pool: await db_pool.close()
 
-def init_db():
-    """
-    Baza jadvallarini yaratish (PostgreSQL formatida).
-    Agar jadvallar mavjud bo'lsa, ularga tegmaydi.
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # 1. Testlar jadvali
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tests (
-                code TEXT PRIMARY KEY, 
-                title TEXT, 
-                duration INTEGER
-            )
-        ''')
-        
-        # 2. Savollar jadvali (SERIAL - avtomatik ID)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS questions (
-                id SERIAL PRIMARY KEY, 
-                test_code TEXT, 
-                question TEXT, 
-                options TEXT, 
-                correct_answer TEXT
-            )
-        ''')
-        
-        # 3. Natijalar jadvali
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS results (
-                id SERIAL PRIMARY KEY, 
-                user_id BIGINT, 
-                user_name TEXT, 
-                nickname TEXT, 
-                test_code TEXT, 
-                test_title TEXT, 
-                score INTEGER, 
-                total INTEGER, 
-                date TEXT
-            )
-        ''')
-        
-        # 4. Foydalanuvchilar jadvali
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id BIGINT PRIMARY KEY, 
-                invited_by BIGINT, 
-                invite_count INTEGER DEFAULT 0, 
-                joined_at TEXT
-            )
-        ''')
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        logging.info("✅ Baza (Supabase) jadvallari muvaffaqiyatli tekshirildi.")
-    except Exception as e:
-        logging.error(f"❌ Baza yaratishda xato: {e}")
-
-# Dastur boshlanishida bazani tekshiramiz
-init_db()
-
-# ======================================================
-# 3. SERVER VA API (FASTAPI)
-# ======================================================
-
-# Statik fayllar (index.html, css, js) uchun papka
+# --- API (WEBAPP UCHUN) ---
 if not os.path.exists("static"): os.makedirs("static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
-async def root():
-    """Server ishlayotganini tekshirish uchun"""
-    return {"status": "🚀 Bot va Server Supabase bilan ishlamoqda!"}
+async def root(): return {"status": "🚀 Bot is working!"}
 
 @app.get("/get_test/{code}")
 async def get_test(code: str):
-    """WebApp uchun test savollarini bazadan olib beradi"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Test ma'lumotini olish
-        cursor.execute("SELECT title, duration FROM tests WHERE code=%s", (code.strip(),))
-        test = cursor.fetchone()
-        
-        if not test:
-            conn.close()
-            return {"error": "Bunday kodli test topilmadi! Kodingizni tekshiring."}
-        
-        # Savollarni olish
-        cursor.execute("SELECT question, options, correct_answer FROM questions WHERE test_code=%s", (code.strip(),))
-        rows = cursor.fetchall()
-        
-        questions = []
-        for q in rows:
-            questions.append({
-                "q": q[0], 
-                "o": json.loads(q[1]), # JSON formatidan listga o'tkazish
-                "a": q[2]
-            })
-            
-        conn.close()
-        return {"title": test[0], "time": test[1], "questions": questions}
-    except Exception as e:
-        logging.error(f"API Xatosi (/get_test): {e}")
-        return {"error": "Server xatosi yuz berdi."}
+    async with db_pool.acquire() as conn:
+        test = await conn.fetchrow("SELECT title, duration FROM tests WHERE code=$1", code)
+        if not test: return {"error": "Test topilmadi"}
+        rows = await conn.fetch("SELECT question, options, correct_answer FROM questions WHERE test_code=$1", code)
+        questions = [{"q": r['question'], "o": json.loads(r['options']), "a": r['correct_answer']} for r in rows]
+        return {"title": test['title'], "time": test['duration'], "questions": questions}
 
 @app.post("/submit_result")
-async def submit_result(request: Request):
-    """O'quvchi yechgan test natijasini qabul qilish"""
-    try:
-        data = await request.json()
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        
-        # Bazaga yozish
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO results (user_id, user_name, nickname, test_code, test_title, score, total, date) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            data.get('user_id'), 
-            clean_html(data.get('user_name')), 
-            data.get('nickname'), 
-            data.get('code'), 
-            data.get('title'), 
-            data.get('score'), 
-            data.get('total'), 
-            now
-        ))
-        conn.commit()
-        conn.close()
-        
-        # Adminga chiroyli hisobot yuborish
-        report = (
-            f"🏆 <b>YANGI NATIJA</b>\n\n"
-            f"👤 <b>O'quvchi:</b> {clean_html(data.get('user_name'))}\n"
-            f"📝 <b>Test:</b> {clean_html(data.get('title'))}\n"
-            f"🔑 <b>Kod:</b> {data.get('code')}\n"
-            f"🎯 <b>Natija:</b> {data.get('score')} / {data.get('total')}\n"
-            f"📅 <b>Vaqt:</b> {now}"
-        )
-        await bot.send_message(ADMIN_ID, report, parse_mode="HTML")
-        return {"status": "success"}
-    except Exception as e:
-        logging.error(f"API Xatosi (/submit_result): {e}")
-        return {"status": "error"}
+async def submit(request: Request):
+    d = await request.json()
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO results (user_id, user_name, nickname, test_code, test_title, score, total, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                           d.get('user_id'), clean(d.get('user_name')), d.get('nickname'), d.get('code'), d.get('title'), d.get('score'), d.get('total'), datetime.now().strftime("%Y-%m-%d %H:%M"))
+    
+    await bot.send_message(ADMIN_ID, f"🏆 <b>YANGI NATIJA</b>\n\n👤 {clean(d.get('user_name'))}\n📚 {clean(d.get('title'))}\n🎯 {d.get('score')} / {d.get('total')}", parse_mode="HTML")
+    return {"status": "success"}
 
-# ======================================================
-# 4. TELEGRAM BOT KOMANDALARI (AIOGRAM)
-# ======================================================
-
+# --- BOT KOMANDALARI ---
 @dp.message(Command("start"))
-async def start_handler(message: types.Message):
-    """Botga start bosilganda ishlaydi"""
-    user_id = message.from_user.id
-    full_name = clean_html(message.from_user.full_name)
-    username = f"@{message.from_user.username}" if message.from_user.username else "Mavjud emas"
-    args = message.text.split()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
+async def cmd_start(msg: types.Message):
+    uid, name = msg.from_user.id, clean(msg.from_user.full_name)
+    args = msg.text.split()
     
-    # Foydalanuvchi bazada borligini tekshirish
-    cursor.execute("SELECT invite_count FROM users WHERE user_id=%s", (user_id,))
-    user_data = cursor.fetchone()
-
-    if not user_data:
-        # --- YANGI FOYDALANUVCHI ---
-        # Taklif qilgan odamni aniqlash
-        invited_by = None
-        if len(args) > 1 and args[1].isdigit():
-            possible_inviter = int(args[1])
-            if possible_inviter != user_id:
-                invited_by = possible_inviter
-
-        # Bazaga qo'shish
-        cursor.execute(
-            "INSERT INTO users (user_id, invited_by, invite_count, joined_at) VALUES (%s, %s, 0, %s)", 
-            (user_id, invited_by, now)
-        )
-        
-        # Agar birov orqali kirgan bo'lsa, unga ball berish
-        if invited_by:
-            cursor.execute("UPDATE users SET invite_count = invite_count + 1 WHERE user_id=%s", (invited_by,))
-            try: await bot.send_message(invited_by, "🎉 <b>Tabriklaymiz!</b> Do'stingiz havola orqali botga qo'shildi.", parse_mode="HTML")
+    async with db_pool.acquire() as conn:
+        user = await conn.fetchrow("SELECT invite_count FROM users WHERE user_id=$1", uid)
+        if not user:
+            inviter = int(args[1]) if len(args) > 1 and args[1].isdigit() and int(args[1]) != uid else None
+            await conn.execute("INSERT INTO users (user_id, invited_by, invite_count, joined_at) VALUES ($1, $2, 0, $3)", uid, inviter, datetime.now().strftime("%Y-%m-%d %H:%M"))
+            if inviter: 
+                await conn.execute("UPDATE users SET invite_count = invite_count + 1 WHERE user_id=$1", inviter)
+                try: await bot.send_message(inviter, "🎉 <b>Do'stingiz qo'shildi!</b>", parse_mode="HTML")
+                except: pass
+            try: await bot.send_message(ADMIN_ID, f"👤 <b>Yangi a'zo:</b> {name} (`{uid}`)", parse_mode="HTML")
             except: pass
-            
-        conn.commit()
-        
-        # Adminga yangi a'zo haqida xabar
-        admin_msg = (
-            f"👤 <b>YANGI FOYDALANUVCHI</b>\n\n"
-            f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-            f"📛 <b>Ism:</b> {full_name}\n"
-            f"🔗 <b>Username:</b> {username}\n"
-            f"📅 <b>Vaqt:</b> {now}"
-        )
-        try: await bot.send_message(ADMIN_ID, admin_msg, parse_mode="HTML")
-        except: pass
-        
-        invite_count = 0
+            count = 0
+        else: count = user['invite_count']
+
+    if uid == ADMIN_ID or count >= 3:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
+        await msg.answer("✅ <b>Xush kelibsiz!</b> Testga kirishingiz mumkin.", reply_markup=kb, parse_mode="HTML")
     else:
-        invite_count = user_data[0]
-    
-    conn.close()
-
-    # --- JAVOB QAYTARISH MANTIQI ---
-    
-    # 1. Agar Admin bo'lsa - hamma narsa ochiq
-    if user_id == ADMIN_ID:
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="Testni Boshlash (Admin) 📝", web_app=WebAppInfo(url=WEBAPP_URL))
-        ]])
-        return await message.answer(f"👑 <b>Xush kelibsiz, Admin!</b>\nSizga barcha testlar ochiq.", reply_markup=kb, parse_mode="HTML")
-
-    # 2. Agar takliflar yetarli bo'lsa (3 ta)
-    if invite_count >= 3:
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))
-        ]])
-        return await message.answer(f"✅ <b>Tabriklaymiz!</b> Shart bajarildi.\nTestni boshlashingiz mumkin:", reply_markup=kb, parse_mode="HTML")
-    
-    # 3. Agar shart bajarilmagan bo'lsa
-    bot_info = await bot.get_me()
-    ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
-    
-    text = (
-        f"👋 <b>Assalomu alaykum, {full_name}!</b>\n\n"
-        f"Testlarni yechish uchun kamida <b>3 ta</b> do'stingizni taklif qilishingiz kerak.\n\n"
-        f"📊 <b>Sizning takliflaringiz:</b> {invite_count} / 3\n\n"
-        f"🔗 <b>Sizning shaxsiy havolangiz:</b>\n<code>{ref_link}</code>\n\n"
-        f"<i>Havolani do'stlaringizga yuboring!</i>"
-    )
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Do'stlarga ulashish 🚀", switch_inline_query=f"\nBiologiya testini yechish uchun botga kiring! {ref_link}")
-    ]])
-    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+        link = f"https://t.me/{(await bot.get_me()).username}?start={uid}"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🚀 Ulashish", switch_inline_query=f"\nTest yechamiz! {link}")]])
+        await msg.answer(f"👋 <b>Salom {name}!</b>\n\nTest yechish uchun <b>3 ta</b> do'stingizni chaqiring.\n📊 Sizda: <b>{count} / 3</b>\n🔗 Link: <code>{link}</code>", reply_markup=kb, parse_mode="HTML")
 
 @dp.message(Command("tests"))
-async def list_tests(message: types.Message):
-    """Admin uchun barcha testlar ro'yxati"""
-    if message.from_user.id != ADMIN_ID: return
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT code, title FROM tests")
-    rows = cursor.fetchall()
-    conn.close()
-    
-    if not rows:
-        return await message.answer("📭 <b>Baza hozircha bo'sh.</b> Test yuklash uchun menga fayl yuboring.", parse_mode="HTML")
-    
-    res = "📋 <b>MAVJUD TESTLAR RO'YXATI:</b>\n\n"
-    for r in rows:
-        res += f"🔹 <code>{r[0]}</code> - {clean_html(r[1])}\n"
-    
-    await message.answer(res, parse_mode="HTML")
+async def cmd_tests(msg: types.Message):
+    if msg.from_user.id != ADMIN_ID: return
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT code, title FROM tests")
+    text = "📋 <b>Mavjud Testlar:</b>\n\n" + "\n".join([f"🔹 `{r['code']}` - {clean(r['title'])}" for r in rows]) if rows else "📭 Testlar yo'q."
+    await msg.answer(text, parse_mode="HTML")
 
 @dp.message(Command("rating"))
-async def show_rating(message: types.Message):
-    """Test kodi bo'yicha reytingni ko'rsatish"""
-    args = message.text.split()
-    if len(args) < 2:
-        return await message.answer("⚠️ <b>Xato!</b> Test kodini kiriting.\nMisol: <code>/rating 001</code>", parse_mode="HTML")
+async def cmd_rating(msg: types.Message):
+    try: code = msg.text.split()[1]
+    except: return await msg.answer("⚠️ Kodni yozing: `/rating 001`", parse_mode="Markdown")
     
-    t_code = args[1].strip()
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT user_name, score, total FROM results WHERE test_code=$1 ORDER BY score DESC, date ASC LIMIT 10", code)
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # Eng yuqori ball va eng tez ishlagan vaqt bo'yicha saralash
-    cursor.execute("""
-        SELECT user_name, score, total FROM results 
-        WHERE test_code=%s 
-        ORDER BY score DESC, date ASC 
-        LIMIT 10
-    """, (t_code,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    if not rows:
-        return await message.answer(f"❌ <b>{t_code}</b> kodi bo'yicha hali natijalar yo'q.", parse_mode="HTML")
-        
-    res = f"🏆 <b>TEST {t_code} — TOP REYTING:</b>\n\n"
-    rewards = ["🥇", "🥈", "🥉"]
-    
-    for i, r in enumerate(rows, 1):
-        medal = rewards[i-1] if i <= 3 else f"{i}."
-        res += f"{medal} <b>{clean_html(r[0])}</b> — {r[1]}/{r[2]}\n"
-        
-    await message.answer(res, parse_mode="HTML")
-
-@dp.message(Command("tanishbilish"))
-async def vip_access(message: types.Message):
-    """Admin tanishlari uchun shartni chetlab o'tish"""
-    user_id = message.from_user.id
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # Taklif sonini sun'iy ravishda 3 taga yetkazish
-    cursor.execute("""
-        INSERT INTO users (user_id, invited_by, invite_count, joined_at) 
-        VALUES (%s, NULL, 3, %s) 
-        ON CONFLICT (user_id) DO UPDATE SET invite_count = 3
-    """, (user_id, datetime.now().strftime("%Y-%m-%d %H:%M")))
-    conn.commit()
-    conn.close()
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))
-    ]])
-    await message.answer("🤫 <b>Tanish-bilish ishga tushdi!</b>\nSizga maxsus ruxsat berildi.", reply_markup=kb, parse_mode="HTML")
+    res = f"🏆 <b>Reyting {code}:</b>\n\n" + "\n".join([f"{i+1}. {clean(r['user_name'])} — {r['score']}/{r['total']}" for i, r in enumerate(rows)]) if rows else "❌ Natijalar yo'q."
+    await msg.answer(res, parse_mode="HTML")
 
 @dp.message(Command("users_count"))
-async def get_stats(message: types.Message):
-    """Admin uchun statistika"""
-    if message.from_user.id != ADMIN_ID: return
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM users")
-    count = cursor.fetchone()[0]
-    conn.close()
-    
-    await message.answer(f"📊 <b>Botdagi jami foydalanuvchilar:</b> {count} nafar", parse_mode="HTML")
+async def cmd_stats(msg: types.Message):
+    if msg.from_user.id != ADMIN_ID: return
+    async with db_pool.acquire() as conn:
+        cnt = await conn.fetchval("SELECT COUNT(*) FROM users")
+    await msg.answer(f"📊 <b>Jami a'zolar:</b> {cnt}", parse_mode="HTML")
+
+@dp.message(Command("tanishbilish"))
+async def cmd_vip(msg: types.Message):
+    async with db_pool.acquire() as conn:
+        await conn.execute("INSERT INTO users (user_id, invite_count) VALUES ($1, 3) ON CONFLICT (user_id) DO UPDATE SET invite_count=3", msg.from_user.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
+    await msg.answer("🤫 <b>VIP ruxsat berildi!</b>", reply_markup=kb, parse_mode="HTML")
 
 @dp.message(Command("admin"))
-async def admin_help(message: types.Message):
-    """Admin menyusi"""
-    if message.from_user.id != ADMIN_ID: return
-    text = (
-        "🛠 <b>ADMIN PANEL BUYRUQLARI:</b>\n\n"
-        "📋 /tests - Testlar ro'yxatini ko'rish\n"
-        "📊 /users_count - Foydalanuvchilar soni\n"
-        "🏆 /rating [kod] - Reytingni ko'rish\n"
-        "📥 <b>Test yuklash:</b> Shunchaki menga quyidagi formatda matn yuboring:\n\n"
-        "<code>kod | mavzu | vaqt</code>\n"
-        "<code>1. Savol | A, B, C | A</code>"
-    )
-    await message.answer(text, parse_mode="HTML")
+async def cmd_admin(msg: types.Message):
+    if msg.from_user.id != ADMIN_ID: return
+    await msg.answer("🛠 <b>Admin Panel:</b>\n/tests - Testlar\n/users_count - Statistika\n/rating [kod] - Reyting\n\n📥 <b>Yuklash:</b> `Kod | Mavzu | Vaqt`", parse_mode="HTML")
 
 @dp.message(F.text.contains("|"))
-async def upload_test(message: types.Message):
-    """Yangi test yuklash funksiyasi"""
-    if message.from_user.id != ADMIN_ID: return
-    
-    lines = message.text.split('\n')
-    header = lines[0].split('|')
-    
-    if len(header) != 3:
-        return await message.answer("⚠️ <b>Format xato!</b>\nBirinchi qator: <code>kod | mavzu | vaqt</code> bo'lishi shart.", parse_mode="HTML")
-    
-    t_code = header[0].strip()
-    t_title = header[1].strip()
-    t_time = header[2].strip()
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
+async def upload_test(msg: types.Message):
+    if msg.from_user.id != ADMIN_ID: return
+    lines = msg.text.split('\n')
     try:
-        # Testni saqlash (Agar avval bo'lsa yangilash)
-        cursor.execute("""
-            INSERT INTO tests (code, title, duration) 
-            VALUES (%s, %s, %s) 
-            ON CONFLICT (code) DO UPDATE SET title = EXCLUDED.title, duration = EXCLUDED.duration
-        """, (t_code, t_title, int(t_time)))
-        
-        # Eski savollarni o'chirish (yangilash uchun)
-        cursor.execute("DELETE FROM questions WHERE test_code=%s", (t_code,))
-        
-        count = 0
-        for line in lines[1:]:
-            if '|' in line:
-                parts = line.split('|')
-                if len(parts) == 3:
-                    q_text = parts[0].split('.', 1)[-1].strip()
-                    # Variantlarni JSON formatida saqlash
-                    opts = json.dumps([i.strip() for i in parts[1].split(",")])
-                    correct = parts[2].strip()
-                    
-                    cursor.execute("""
-                        INSERT INTO questions (test_code, question, options, correct_answer) 
-                        VALUES (%s, %s, %s, %s)
-                    """, (t_code, q_text, opts, correct))
-                    count += 1
-        
-        conn.commit()
-        await message.answer(f"✅ <b>{clean_html(t_title)}</b> muvaffaqiyatli saqlandi!\n📝 Jami savollar: {count} ta", parse_mode="HTML")
-        
-    except Exception as e:
-        conn.rollback()
-        await message.answer(f"❌ Saqlashda xatolik: {e}")
-    finally:
-        conn.close()
+        code, title, time = map(str.strip, lines[0].split('|'))
+        async with db_pool.acquire() as conn:
+            await conn.execute("INSERT INTO tests (code, title, duration) VALUES ($1, $2, $3) ON CONFLICT (code) DO UPDATE SET title=$2, duration=$3", code, title, int(time))
+            await conn.execute("DELETE FROM questions WHERE test_code=$1", code)
+            for l in lines[1:]:
+                if '|' in l:
+                    q, o, a = map(str.strip, l.split('|'))
+                    await conn.execute("INSERT INTO questions (test_code, question, options, correct_answer) VALUES ($1, $2, $3, $4)", code, q.split('.', 1)[-1].strip(), json.dumps([x.strip() for x in o.split(',')]), a)
+        await msg.answer(f"✅ <b>{title}</b> yuklandi!", parse_mode="HTML")
+    except Exception as e: await msg.answer(f"❌ Xato: {e}")
 
-# ======================================================
-# 5. ASOSIY ISHGA TUSHIRISH QISMI
-# ======================================================
+# --- START ---
 async def main():
-    # Webhookni o'chirish (Conflict xatosini 100% oldini oladi)
     await bot.delete_webhook(drop_pending_updates=True)
-    
-    # Server sozlamalari
     config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
-    server = uvicorn.Server(config)
-    
-    # Bot va Serverni parallel ishga tushirish
-    await asyncio.gather(dp.start_polling(bot), server.serve())
+    await asyncio.gather(dp.start_polling(bot), uvicorn.Server(config).serve())
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
