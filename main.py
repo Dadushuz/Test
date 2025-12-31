@@ -3,8 +3,7 @@ import asyncio
 import os
 
 # Render Environment Variables bo'limidan olinadi
-TOKEN = os.getenv("BOT_TOKEN") 
-ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
+
 
 import sqlite3
 import json
@@ -17,7 +16,8 @@ from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 
 # 1. LOGLAR VA SOZLAMALAR
 logging.basicConfig(level=logging.INFO)
-
+TOKEN = os.getenv("BOT_TOKEN") 
+ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
 app = FastAPI()
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
