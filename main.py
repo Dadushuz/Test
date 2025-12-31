@@ -189,20 +189,30 @@ async def result_handler(message: types.Message):
     await bot.send_message(ADMIN_ID, admin_report, parse_mode="Markdown")
     await message.answer(f"🏁 Test tugadi! Ballingiz: {data['score']}/{data['total']}")
 
-# 9. ASOSIY QISIM
-async def main():
-    # Botni ishga tushirish (xatoliklarni ko'rsatish bilan)
+# 9. ASOSIY QISIM - TO'G'IRLANGAN VARIANT
+async def run_bot():
     try:
-        logging.info("Bot polling boshlanmoqda...")
-        # Webhook bor bo'lsa o'chirib, keyin polling boshlaydi
+        logging.info("Bot ishga tushdi...")
         await bot.delete_webhook(drop_pending_updates=True)
-        asyncio.create_task(dp.start_polling(bot))
+        await dp.start_polling(bot)
     except Exception as e:
-        logging.error(f"Botni ishga tushirishda xato: {e}")
+        logging.error(f"Botda xato: {e}")
 
+async def run_server():
     import uvicorn
     config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
     server = uvicorn.Server(config)
     await server.serve()
+
+async def main():
+    # Ikkala vazifani ham bir vaqtda ishga tushiramiz
+    await asyncio.gather(
+        run_bot(),
+        run_server()
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
     
     
