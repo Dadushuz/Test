@@ -14,6 +14,7 @@ import uvicorn
 # 1. LOGLAR VA SOZLAMALAR
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.getenv("BOT_TOKEN") 
+# ADMIN_ID ni Render panelidan olish yoki shu yerga raqam yozish
 ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
 
 app = FastAPI()
@@ -34,11 +35,16 @@ def init_db():
 
 init_db()
 
-# 3. STATIC FAYLLAR
-if not os.path.exists("static"): os.makedirs("static")
+# 3. STATIC FAYLLAR VA SERVER
+if not os.path.exists("static"): 
+    os.makedirs("static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 4. API ENDPOINTLAR
+@app.get("/")
+async def root(): 
+    return {"status": "IKRAMOV BIOLOGIYA server ishlayapti"}
+
 @app.get("/get_test/{code}")
 async def get_test(code: str):
     conn = sqlite3.connect('quiz.db')
@@ -79,21 +85,67 @@ async def submit_result(request: Request):
         await bot.send_message(ADMIN_ID, report, parse_mode="HTML")
         return {"status": "success"}
     except Exception as e:
-        logging.error(f"Natija qabul qilishda xato: {e}")
-        return {"status": "error", "message": str(e)}
+        logging.error(f"Natija yuborishda xato: {e}")
+        return {"status": "error"}
 
 # 5. BOT BUYRUQLARI
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    # O'zingizning Render manzilingizni tekshiring
     web_url = "https://test-fzug.onrender.com/static/index.html"
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=web_url))
     ]])
-    await message.answer(f"Assalomu alaykum <b>{message.from_user.first_name}</b>!\nIKRAMOV BIOLOGIYA testiga xush kelibsiz!", reply_markup=kb, parse_mode="HTML")
+    await message.answer(
+        f"Assalomu alaykum <b>{message.from_user.first_name}</b>!\n"
+        "IKRAMOV BIOLOGIYA platformasiga xush kelibsiz!", 
+        reply_markup=kb, 
+        parse_mode="HTML"
+    )
 
-# ... (Admin buyruqlari: /admin, /tests, /stat avvalgi kod bilan bir xil)
+@dp.message(Command("admin"))
+async def admin_panel(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    text = "<b>🛠 ADMIN PANEL</b>\n\n/tests - Ro'yxat\n/stat - Natijalar\n/del_test [kod]"
+    await message.answer(text, parse_mode="HTML")
 
-# 6. ISHGA TUSHIRISH
+@dp.message(F.text.contains("|"))
+async def handle_bulk_data(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    lines = message.text.split('\n')
+    header = lines[0].split('|')
+    if len(header) != 3: return
+    test_code, title, time = header[0].strip(), header[1].strip(), header[2].strip()
+    conn = sqlite3.connect('quiz.db')
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT OR REPLACE INTO tests VALUES (?, ?, ?)", (test_code, title, int(time)))
+        cursor.execute("DELETE FROM questions WHERE test_code=?", (test_code,))
+        for line in lines[1:]:
+            if '|' in line:
+                q_p = line.split('|')
+                if len(q_p) == 3:
+                    q_text = q_p[0].split('.', 1)[-1].strip()
+                    opts = json.dumps([i.strip() for i in q_p[1].split(",")])
+                    cursor.execute("INSERT INTO questions (test_code, question, options, correct_answer) VALUES (?,?,?,?)",
+                                   (test_code, q_text, opts, q_p[2].strip()))
+        conn.commit()
+        await message.answer(f"✅ <b>{title}</b> saqlandi!", parse_mode="HTML")
+    finally: conn.close()
+
+@dp.message(Command("stat"))
+async def show_stats(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    conn = sqlite3.connect('quiz.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_name, test_title, score, total FROM results ORDER BY id DESC LIMIT 15")
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows: return await message.answer("Natijalar yo'q.")
+    res = "📊 <b>Oxirgi natijalar:</b>\n\n" + "\n".join([f"👤 {r[0]} | {r[1]}: {r[2]}/{r[3]}" for r in rows])
+    await message.answer(res, parse_mode="HTML")
+
+# 6. ASOSIY ISHGA TUSHIRISH
 async def run_bot():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
@@ -104,7 +156,13 @@ async def run_server():
     await server.serve()
 
 async def main():
-    await asyncio.gather(run_bot(), run_server())
+    await asyncio.gather(
+        run_bot(),
+        run_server()
+    )
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("To'xtatildi")
