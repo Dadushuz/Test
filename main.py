@@ -210,11 +210,11 @@ async def main():
         run_bot(),
         run_server()
     )
-    if __name__ == "__main__":
-    import asyncio
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Bot to'xtatildi")
+if __name__ == "__main__":
+import asyncio
+try:
+    asyncio.run(main())
+except (KeyboardInterrupt, SystemExit):
+    logging.info("Bot to'xtatildi")
         
     
