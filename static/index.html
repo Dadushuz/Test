@@ -6,61 +6,57 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f9; margin: 0; padding: 20px; -webkit-user-select: none; user-select: none; }
-        .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); text-align: center; transition: 0.3s; }
-        input { width: 100%; padding: 15px; margin: 15px 0; border: 2px solid #eee; border-radius: 12px; box-sizing: border-box; font-size: 16px; }
-        .btn { background: #0088cc; color: white; border: none; padding: 16px; border-radius: 12px; width: 100%; font-weight: bold; cursor: pointer; font-size: 16px; }
+        .card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); text-align: center; }
+        input { width: 100%; padding: 15px; margin: 15px 0; border: 2px solid #eee; border-radius: 12px; box-sizing: border-box; }
+        .btn { background: #0088cc; color: white; border: none; padding: 16px; border-radius: 12px; width: 100%; font-weight: bold; cursor: pointer; }
         .opt { display: block; width: 100%; margin: 12px 0; padding: 15px; background: #fff; border: 2px solid #f0f3f5; border-radius: 12px; text-align: left; cursor: pointer; transition: 0.2s; }
-        .opt:active { background: #e1f5fe; transform: scale(0.98); }
+        
+        /* Ranglar mantiqi */
+        .correct { background-color: #2ecc71 !important; color: white !important; border-color: #27ae60 !important; }
+        .wrong { background-color: #e74c3c !important; color: white !important; border-color: #c0392b !important; }
+        .disabled { pointer-events: none; }
+
         .hidden { display: none; }
         #timer { font-size: 26px; color: #e74c3c; font-weight: bold; margin-bottom: 10px; }
-        .progress-bar { background: #eee; height: 8px; border-radius: 10px; margin-bottom: 20px; overflow: hidden; }
-        #bar { height: 100%; background: #2ecc71; width: 0%; transition: 0.4s; }
-        /* Screenshotga qarshi blur */
-        .blur { filter: blur(20px); pointer-events: none; }
+        #bar { height: 8px; background: #2ecc71; width: 0%; transition: 0.4s; border-radius: 10px; }
+        .blur { filter: blur(25px); pointer-events: none; }
     </style>
 </head>
 <body oncontextmenu="return false;">
     <div id="app" class="card">
         <div id="home">
             <h2 style="color: #0088cc;">IKRAMOV BIOLOGIYA</h2>
-            <p>Test kodini kiriting:</p>
-            <input type="number" id="testCode" placeholder="Masalan: 001" inputmode="numeric">
+            <input type="number" id="testCode" placeholder="Test kodi" inputmode="numeric">
             <button class="btn" onclick="startQuiz()">TESTNI BOSHLASH</button>
         </div>
         <div id="quiz" class="hidden">
             <div id="timer">00:00</div>
-            <div class="progress-bar"><div id="bar"></div></div>
+            <div style="background: #eee; height: 8px; border-radius: 10px; margin-bottom: 20px;"><div id="bar"></div></div>
             <div id="question" style="text-align: left; font-size: 19px; font-weight: bold; margin-bottom: 20px;"></div>
             <div id="options"></div>
         </div>
         <div id="result" class="hidden">
             <h2 style="color: #2ecc71;">TUGADI ✅</h2>
-            <div id="scoreDisplay" style="font-size: 50px; font-weight: 900; margin: 20px 0; color: #2c3e50;"></div>
-            <p>Natijangiz adminga yuborildi.</p>
+            <div id="scoreDisplay" style="font-size: 50px; font-weight: 900; margin: 20px 0;"></div>
             <button class="btn" onclick="tg.close()">YOPISH</button>
         </div>
     </div>
 
     <script>
-        let tg = window.Telegram.WebApp;
-        tg.expand();
-        let currentTest, userAnswers = [], idx = 0, timer;
+        let tg = window.Telegram.WebApp; tg.expand();
+        let currentTest, userAnswers = [], timer;
 
-        // Screenshot himoyasi: Ilovadan chiqilsa blur qilish
         window.onblur = () => document.getElementById('app').classList.add('blur');
         window.onfocus = () => document.getElementById('app').classList.remove('blur');
 
         async function startQuiz() {
-            const code = document.getElementById('testCode').value;
-            if(!code) return alert("Kod kiritilmadi!");
+            const code = document.getElementById('testCode').value.trim();
             const res = await fetch(`/get_test/${code}`);
             const data = await res.json();
-            if(data.error) return alert("Test topilmadi!");
-            
+            if(data.error) return alert(data.error);
             currentTest = data;
             document.getElementById('home').classList.add('hidden');
             document.getElementById('quiz').classList.remove('hidden');
-            
             let s = data.time * 60;
             timer = setInterval(() => {
                 let m = Math.floor(s/60), sec = s%60;
@@ -71,18 +67,32 @@
         }
 
         function showQ(n) {
-            idx = n;
             const q = currentTest.questions[n];
             document.getElementById('bar').style.width = (n / currentTest.questions.length * 100) + "%";
             document.getElementById('question').innerText = `${n+1}. ${q.q}`;
-            const optDiv = document.getElementById('options');
-            optDiv.innerHTML = "";
+            const optDiv = document.getElementById('options'); optDiv.innerHTML = "";
             q.o.forEach(o => {
-                const b = document.createElement('button');
-                b.className = "opt"; b.innerText = o;
-                b.onclick = () => { userAnswers[n] = o; (n+1 < currentTest.questions.length) ? showQ(n+1) : finish(); };
+                const b = document.createElement('button'); b.className = "opt"; b.innerText = o;
+                b.onclick = () => checkAns(b, o, q.a, n);
                 optDiv.appendChild(b);
             });
+        }
+
+        function checkAns(btn, selected, correct, n) {
+            const all = document.querySelectorAll('.opt');
+            all.forEach(b => b.classList.add('disabled'));
+            userAnswers[n] = selected;
+
+            if(selected === correct) {
+                btn.classList.add('correct');
+            } else {
+                btn.classList.add('wrong');
+                all.forEach(b => { if(b.innerText === correct) b.classList.add('correct'); });
+            }
+
+            setTimeout(() => {
+                (n+1 < currentTest.questions.length) ? showQ(n+1) : finish();
+            }, 1200);
         }
 
         async function finish() {
@@ -91,15 +101,12 @@
             currentTest.questions.forEach((q, i) => { if(userAnswers[i] === q.a) score++; });
             const user = tg.initDataUnsafe.user || {};
             const resData = {
-                user_id: user.id, user_name: user.first_name, nickname: user.username ? "@"+user.username : "Yo'q",
+                user_id: user.id, user_name: user.first_name, nickname: user.username || "Yo'q",
                 score: score, total: currentTest.questions.length, code: document.getElementById('testCode').value, title: currentTest.title
             };
-            document.getElementById('quiz').classList.add('hidden');
-            document.getElementById('result').classList.remove('hidden');
+            document.getElementById('quiz').classList.add('hidden'); document.getElementById('result').classList.remove('hidden');
             document.getElementById('scoreDisplay').innerText = `${score} / ${resData.total}`;
-            
             await fetch('/submit_result', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(resData) });
-            tg.sendData(JSON.stringify(resData));
         }
     </script>
 </body>
