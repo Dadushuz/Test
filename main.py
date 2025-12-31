@@ -65,7 +65,7 @@ async def submit_result(request: Request):
         conn.close()
         
         report = (f"🏆 <b>YANGI NATIJA</b>\n\n👤 <b>O'quvchi:</b> {data.get('user_name')}\n"
-                  f"📚 <b>Test:</b> {data.get('title')}\n🎯 <b>Natija:</b> {data.get('score')} / {data.get('total')}\n📅 <b>Sana:</b> {now}")
+                  f"📚 <b>Test:</b> {data.get('title')}\n🎯 <b>Natija:</b> {data.get('score')} / {data.get('total')}\n📅 {now}")
         await bot.send_message(ADMIN_ID, report, parse_mode="HTML")
         return {"status": "success"}
     except: return {"status": "error"}
@@ -76,10 +76,9 @@ async def start(message: types.Message):
     user_id = message.from_user.id
     args = message.text.split()
     
-    # ADMIN UCHUN IMTIYOZ
     if user_id == ADMIN_ID:
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash (Admin) 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
-        return await message.answer(f"👑 <b>Admin xush kelibsiz!</b>\nTestga kirish cheksiz ruxsat etildi.", reply_markup=kb, parse_mode="HTML")
+        return await message.answer(f"👑 <b>Xush kelibsiz, Admin!</b>", reply_markup=kb, parse_mode="HTML")
 
     conn = sqlite3.connect('quiz.db', timeout=20)
     cursor = conn.cursor()
@@ -88,10 +87,10 @@ async def start(message: types.Message):
     
     if not user:
         invited_by = int(args[1]) if len(args) > 1 and args[1].isdigit() and int(args[1]) != user_id else None
-        cursor.execute("INSERT INTO users (user_id, invited_by, invite_count) VALUES (?, ?, 0)", (user_id, invited_by))
+        cursor.execute("INSERT INTO users (user_id, invited_by, invite_count) VALUES (?, ?, 0)", (user_id, invited_by, 0))
         if invited_by:
             cursor.execute("UPDATE users SET invite_count = invite_count + 1 WHERE user_id=?", (invited_by,))
-            try: await bot.send_message(invited_by, "🎉 <b>Yangi taklif!</b> Do'stingiz qo'shildi.", parse_mode="HTML")
+            try: await bot.send_message(invited_by, "🎉 Do'stingiz qo'shildi!", parse_mode="HTML")
             except: pass
         conn.commit()
         invite_count = 0
@@ -102,13 +101,27 @@ async def start(message: types.Message):
     if invite_count < 3:
         bot_info = await bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
-        text = (f"👋 <b>Assalomu alaykum!</b>\n\nTestni boshlash uchun <b>3 ta</b> do'stingizni taklif qiling.\n\n"
-                f"Siz taklif qilganlar: <b>{invite_count} / 3</b>\nTaklif havolangiz:\n<code>{ref_link}</code>")
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Ulashish 🚀", switch_inline_query=f"\nBiologiya testini yechamiz! {ref_link}")]])
+        text = (f"👋 <b>Assalomu alaykum!</b>\n\nTestga kirish uchun 3 ta do'st taklif qiling.\n"
+                f"Takliflar: <b>{invite_count} / 3</b>\n<code>{ref_link}</code>")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Ulashish 🚀", switch_inline_query=f"\nBiologiya testi: {ref_link}")]])
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
-        await message.answer(f"✅ <b>Tabriklaymiz!</b> Testni boshlashingiz mumkin:", reply_markup=kb, parse_mode="HTML")
+        await message.answer(f"✅ <b>Ruxsat berildi!</b>", reply_markup=kb, parse_mode="HTML")
+
+# --- YANGI KOMANDA: /tanishbilish ---
+@dp.message(Command("tanishbilish"))
+async def vip_access(message: types.Message):
+    user_id = message.from_user.id
+    conn = sqlite3.connect('quiz.db', timeout=20)
+    cursor = conn.cursor()
+    # Foydalanuvchini bazada yangilash yoki qo'shish, taklifni 3 taga tenglash
+    cursor.execute("INSERT OR REPLACE INTO users (user_id, invited_by, invite_count) VALUES (?, ?, 3)", (user_id, None))
+    conn.commit()
+    conn.close()
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
+    await message.answer("🤫 <b>Tanish-bilish ishga tushdi!</b>\nSizga testga kirish uchun maxsus ruxsat berildi.", reply_markup=kb, parse_mode="HTML")
 
 @dp.message(Command("tests"))
 async def list_tests(message: types.Message):
@@ -118,13 +131,8 @@ async def list_tests(message: types.Message):
     cursor.execute("SELECT code, title FROM tests")
     rows = cursor.fetchall()
     conn.close()
-    
-    if not rows:
-        return await message.answer("📭 <b>Baza hozircha bo'sh.</b>", parse_mode="HTML")
-    
-    res = "📋 <b>MAVJUD TESTLAR RO'YXATI:</b>\n\n"
-    for r in rows:
-        res += f"🔹 <code>{r[0]}</code> - {r[1]}\n"
+    if not rows: return await message.answer("Baza bo'sh.")
+    res = "📋 <b>Testlar:</b>\n" + "\n".join([f"🔹 <code>{r[0]}</code> - {r[1]}" for r in rows])
     await message.answer(res, parse_mode="HTML")
 
 @dp.message(Command("stat"))
@@ -135,8 +143,8 @@ async def show_stats(message: types.Message):
     cursor.execute("SELECT user_name, test_title, score, total FROM results ORDER BY id DESC LIMIT 15")
     rows = cursor.fetchall()
     conn.close()
-    if not rows: return await message.answer("📊 <b>Natijalar yo'q.</b>", parse_mode="HTML")
-    res = "📊 <b>OXIRGI NATIJALAR:</b>\n\n" + "\n".join([f"👤 {r[0]} | {r[1]}: {r[2]}/{r[3]}" for r in rows])
+    if not rows: return await message.answer("Natijalar yo'q.")
+    res = "📊 <b>Natijalar:</b>\n" + "\n".join([f"👤 {r[0]} | {r[1]}: {r[2]}/{r[3]}" for r in rows])
     await message.answer(res, parse_mode="HTML")
 
 @dp.message(F.text.contains("|"))
@@ -145,14 +153,12 @@ async def handle_upload(message: types.Message):
     lines = message.text.split('\n')
     header = lines[0].split('|')
     if len(header) != 3: return
-    
     t_code, t_title, t_time = header[0].strip(), header[1].strip(), header[2].strip()
     conn = sqlite3.connect('quiz.db', timeout=20)
     cursor = conn.cursor()
     try:
         cursor.execute("INSERT OR REPLACE INTO tests VALUES (?,?,?)", (t_code, t_title, int(t_time)))
         cursor.execute("DELETE FROM questions WHERE test_code=?", (t_code,))
-        count = 0
         for line in lines[1:]:
             if '|' in line:
                 p = line.split('|')
@@ -160,13 +166,11 @@ async def handle_upload(message: types.Message):
                     q_text = p[0].split('.', 1)[-1].strip()
                     opts = json.dumps([i.strip() for i in p[1].split(",")])
                     cursor.execute("INSERT INTO questions (test_code, question, options, correct_answer) VALUES (?,?,?,?)", (t_code, q_text, opts, p[2].strip()))
-                    count += 1
         conn.commit()
-        await message.answer(f"✅ <b>{t_title}</b> saqlandi! ({count} ta savol)", parse_mode="HTML")
-    except Exception as e: await message.answer(f"❌ Xato: {e}")
+        await message.answer(f"✅ <b>{t_title}</b> saqlandi!", parse_mode="HTML")
+    except Exception as e: await message.answer(f"Xato: {e}")
     finally: conn.close()
 
-# 5. ISHGA TUSHIRISH
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
