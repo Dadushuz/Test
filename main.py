@@ -3,6 +3,21 @@ import asyncio
 import os
 import sqlite3
 import json
+# Buni importlardan keyin qo'shing
+def setup_db():
+    conn = sqlite3.connect('quiz.db')
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS tests 
+        (code TEXT PRIMARY KEY, title TEXT, duration INTEGER)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS questions 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, test_code TEXT, 
+         question TEXT, options TEXT, correct_answer TEXT)''')
+    conn.commit()
+    conn.close()
+
+# Buni esa main_loop yoki startup_event ichida chaqiring
+setup_db()
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from aiogram import Bot, Dispatcher, types, F
