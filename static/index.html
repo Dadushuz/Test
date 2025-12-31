@@ -1,199 +1,233 @@
 <!DOCTYPE html>
-<html>
+<html lang="uz">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IKRAMOV BIOLOGIYA Test Platformasi</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body { 
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
-            background: #f4f7f9; 
+            font-family: 'Segoe UI', Roboto, sans-serif; 
+            background: #f0f2f5; 
             display: flex; 
             justify-content: center; 
+            align-items: flex-start;
+            min-height: 100vh;
+            margin: 0;
             padding: 20px;
-            color: #2c3e50;
+            color: #333;
         }
         .card { 
             background: white; 
             width: 100%; 
-            max-width: 400px; 
-            padding: 30px; 
-            border-radius: 25px; 
+            max-width: 450px; 
+            padding: 25px; 
+            border-radius: 20px; 
             text-align: center; 
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1); 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08); 
         }
-        h2 { 
-            color: #0088cc; 
-            text-transform: uppercase; 
-            letter-spacing: 1px;
-            margin-bottom: 5px;
-        }
-        .brand-sub {
-            font-size: 12px;
-            color: #888;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-        }
+        h2 { color: #0088cc; margin-bottom: 5px; }
+        .brand-sub { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 20px; letter-spacing: 1px; }
+        
+        /* Kirish qismi */
         input { 
-            width: 90%; 
+            width: 100%; 
             padding: 15px; 
             margin: 15px 0; 
             border: 2px solid #eef2f5; 
             border-radius: 12px; 
             font-size: 18px;
-            color: #000;
-            background: #fbfcfd;
+            box-sizing: border-box;
             outline: none;
             transition: 0.3s;
         }
         input:focus { border-color: #0088cc; }
         
-        button.start-btn { 
-            background: #0088cc; 
-            color: white; 
-            border: none; 
-            padding: 16px; 
-            border-radius: 12px; 
-            cursor: pointer; 
-            width: 100%; 
-            font-weight: bold; 
-            font-size: 16px;
-            box-shadow: 0 5px 15px rgba(0,136,204,0.3);
+        .start-btn { 
+            background: #0088cc; color: white; border: none; padding: 16px; 
+            border-radius: 12px; cursor: pointer; width: 100%; 
+            font-weight: bold; font-size: 16px; transition: 0.3s;
         }
+        .start-btn:hover { background: #0077b5; }
+
+        /* Test qismi */
         .hidden { display: none; }
-        .opt { 
-            display: block; 
-            width: 100%; 
-            margin: 12px 0; 
-            padding: 16px; 
-            background: #ffffff; 
-            border: 2px solid #f0f3f5; 
-            border-radius: 15px; 
-            text-align: left; 
-            font-size: 16px;
-            cursor: pointer;
-            color: #2c3e50; /* JAVOBLAR RANGI QORA */
-            font-weight: 500;
-            transition: 0.2s;
-        }
-        .opt:active {
-            background: #e1f5fe;
-            border-color: #0088cc;
-            transform: scale(0.98);
-        }
-        #timer { 
-            font-size: 30px; 
-            color: #e74c3c; 
-            font-weight: 800; 
-            margin-bottom: 15px; 
-        }
+        #timer { font-size: 28px; color: #e74c3c; font-weight: bold; margin-bottom: 15px; }
+        
         .progress-container {
-            height: 6px; 
-            background: #eee; 
-            width: 100%; 
-            border-radius: 10px; 
-            margin-bottom: 25px;
-            overflow: hidden;
+            height: 8px; background: #eee; width: 100%; 
+            border-radius: 10px; margin-bottom: 20px; overflow: hidden;
         }
+        #bar { height: 100%; background: #2ecc71; width: 0%; transition: 0.4s; }
+
+        #question { text-align: left; font-size: 18px; line-height: 1.4; margin-bottom: 20px; }
+        
+        .opt { 
+            display: block; width: 100%; margin: 10px 0; padding: 15px; 
+            background: #fff; border: 2px solid #f0f3f5; border-radius: 12px; 
+            text-align: left; font-size: 16px; cursor: pointer; transition: 0.2s;
+        }
+        .opt:hover { border-color: #0088cc; background: #faffff; }
+        .opt:active { transform: scale(0.98); background: #e1f5fe; }
+
+        /* Natija qismi */
+        .score-num { font-size: 48px; font-weight: 900; color: #2c3e50; margin: 15px 0; }
+        .success-msg { color: #2ecc71; font-weight: bold; }
     </style>
 </head>
 <body>
+
     <div id="app" class="card">
         <div id="home">
             <h2>IKRAMOV BIOLOGIYA</h2>
             <div class="brand-sub">Sifatli ta'lim platformasi</div>
-            <p style="color: #666; font-size: 14px;">Testni boshlash uchun maxsus kodni kiriting</p>
-            <input type="number" id="code" placeholder="Test kodi" inputmode="numeric">
-            <button class="start-btn" onclick="start()">KIRISH</button>
+            <p>Test kodini kiriting:</p>
+            <input type="number" id="testCode" placeholder="Masalan: 001" inputmode="numeric">
+            <button class="start-btn" onclick="startQuiz()">TESTNI BOSHLASH</button>
         </div>
 
         <div id="quiz" class="hidden">
             <div id="timer">00:00</div>
             <div class="progress-container">
-                <div id="bar" style="height: 100%; background: #2ecc71; width: 0%; transition: 0.4s;"></div>
+                <div id="bar"></div>
             </div>
-            <h3 id="question" style="text-align: left; line-height: 1.5; font-size: 19px;"></h3>
+            <div id="question"></div>
             <div id="options"></div>
+        </div>
+
+        <div id="result" class="hidden">
+            <h2 class="success-msg">TEST YAKUNLANDI</h2>
+            <div class="score-num" id="displayScore">0 / 0</div>
+            <p id="statusMsg">Natijangiz adminga yuborilmoqda...</p>
         </div>
     </div>
 
     <script>
         let tg = window.Telegram.WebApp;
-        tg.expand();
-        let currentTest, timer, answers = [], idx = 0;
+        tg.expand(); // WebApp oynasini to'liq ochish
 
-        async function start() {
-            const codeInput = document.getElementById('code').value;
-            if(!codeInput) return alert("Kodni kiriting!");
+        let currentTest = null;
+        let userAnswers = [];
+        let currentIndex = 0;
+        let timerInterval = null;
+
+        // 1. Testni boshlash
+        async function startQuiz() {
+            const code = document.getElementById('testCode').value;
+            if(!code) return alert("Iltimos, test kodini kiriting!");
 
             try {
-                const res = await fetch('/get_test/' + codeInput);
-                const data = await res.json();
+                const response = await fetch(`/get_test/${code}`);
+                const data = await response.json();
 
                 if(data.error) return alert("Xato: Test topilmadi!");
 
                 currentTest = data;
                 document.getElementById('home').classList.add('hidden');
                 document.getElementById('quiz').classList.remove('hidden');
-                
-                let sec = data.time * 60;
-                timer = setInterval(() => {
-                    let m = Math.floor(sec/60), s = sec%60;
-                    document.getElementById('timer').innerText = (m<10?'0':'')+m + ":" + (s<10?'0':'') + s;
-                    if(sec-- <= 0) finish();
-                }, 1000);
 
-                showQ(0);
-            } catch(e) {
-                alert("Server xatosi!");
+                startTimer(data.time);
+                showQuestion(0);
+            } catch (error) {
+                alert("Server bilan bog'lanishda xato!");
             }
         }
 
-        function showQ(n) {
-            idx = n;
-            const q = currentTest.questions[n];
-            document.getElementById('question').innerText = (n+1) + ". " + q.q;
-            
-            // Progress bar
-            document.getElementById('bar').style.width = ((n / currentTest.questions.length) * 100) + "%";
+        // 2. Taymerni ishga tushirish
+        function startTimer(minutes) {
+            let seconds = minutes * 60;
+            timerInterval = setInterval(() => {
+                let m = Math.floor(seconds / 60);
+                let s = seconds % 60;
+                document.getElementById('timer').innerText = 
+                    `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+                
+                if (seconds <= 0) {
+                    finishQuiz();
+                }
+                seconds--;
+            }, 1000);
+        }
 
-            const optDiv = document.getElementById('options');
-            optDiv.innerHTML = "";
-            q.o.forEach(o => {
-                const b = document.createElement('button');
-                b.className = "opt";
-                b.innerText = o;
-                b.onclick = () => {
-                    answers[n] = o;
-                    if(n + 1 < currentTest.questions.length) showQ(n+1);
-                    else finish();
+        // 3. Savolni ko'rsatish
+        function showQuestion(index) {
+            currentIndex = index;
+            const qData = currentTest.questions[index];
+            
+            // Progress bar yangilash
+            const progress = ((index) / currentTest.questions.length) * 100;
+            document.getElementById('bar').style.width = progress + "%";
+
+            // Savol matni
+            document.getElementById('question').innerHTML = `<b>${index + 1}.</b> ${qData.q}`;
+
+            // Variantlar
+            const optionsDiv = document.getElementById('options');
+            optionsDiv.innerHTML = "";
+            
+            qData.o.forEach(option => {
+                const btn = document.createElement('button');
+                btn.className = "opt";
+                btn.innerText = option;
+                btn.onclick = () => {
+                    userAnswers[index] = option;
+                    if (index + 1 < currentTest.questions.length) {
+                        showQuestion(index + 1);
+                    } else {
+                        finishQuiz();
+                    }
                 };
-                optDiv.appendChild(b);
+                optionsDiv.appendChild(btn);
             });
         }
 
-        function finish() {
-            clearInterval(timer);
-            let score = 0;
-            currentTest.questions.forEach((q, i) => { if(answers[i] === q.a) score++; });
+        // 4. Testni tugatish va natijani yuborish
+        async function finishQuiz() {
+            clearInterval(timerInterval);
             
-            const result = { 
-                score: score, 
-                total: currentTest.questions.length, 
-                code: document.getElementById('code').value, 
-                title: currentTest.title 
+            let correctCount = 0;
+            currentTest.questions.forEach((q, i) => {
+                if (userAnswers[i] === q.a) correctCount++;
+            });
+
+            const totalQ = currentTest.questions.length;
+            
+            // Sahifani almashtirish
+            document.getElementById('quiz').classList.add('hidden');
+            document.getElementById('result').classList.remove('hidden');
+            document.getElementById('displayScore').innerText = `${correctCount} / ${totalQ}`;
+
+            // Telegram foydalanuvchi ma'lumotlari
+            const user = tg.initDataUnsafe.user || {};
+            const resultData = {
+                user_id: user.id || 0,
+                user_name: (user.first_name || "Noma'lum") + (user.last_name ? " " + user.last_name : ""),
+                nickname: user.username ? "@" + user.username : "Yo'q",
+                score: correctCount,
+                total: totalQ,
+                code: document.getElementById('testCode').value,
+                title: currentTest.title
             };
-            
-            tg.sendData(JSON.stringify(result));
-            document.getElementById('quiz').innerHTML = `
-                <h2 style="color: #2ecc71;">TUGADI</h2>
-                <p>Sizning natijangiz:</p>
-                <div style="font-size: 45px; font-weight: 900; margin: 20px 0; color: #2c3e50;">${score} / ${result.total}</div>
-                <div style="background: #f8f9fa; padding: 10px; border-radius: 10px; color: #777; font-size: 13px;">
-                    Natijalar muvaffaqiyatli saqlandi.
-                </div>
-            `;
-            setTimeout(() => tg.close(), 3000);
+
+            // 1-Yo'l: To'g'ridan-to'g'ri Backend API ga yuborish (Eng ishonchli)
+            try {
+                await fetch('/submit_result', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(resultData)
+                });
+                document.getElementById('statusMsg').innerText = "Natijangiz muvaffaqiyatli saqlandi!";
+            } catch (e) {
+                document.getElementById('statusMsg').innerText = "Natija yuborishda xato, lekin botga jo'natildi.";
+            }
+
+            // 2-Yo'l: Telegram sendData (Zaxira)
+            tg.sendData(JSON.stringify(resultData));
+
+            // 3 soniyadan keyin WebAppni yopish
+            setTimeout(() => {
+                tg.close();
+            }, 4000);
         }
     </script>
 </body>
