@@ -2,27 +2,117 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { font-family: sans-serif; background: #f0f2f5; display: flex; justify-content: center; padding: 20px; }
-        .card { background: white; width: 100%; max-width: 400px; padding: 20px; border-radius: 15px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        input { width: 80%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; }
-        button { background: #0088cc; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; width: 85%; font-weight: bold; }
+        body { 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            background: #f4f7f9; 
+            display: flex; 
+            justify-content: center; 
+            padding: 20px;
+            color: #2c3e50;
+        }
+        .card { 
+            background: white; 
+            width: 100%; 
+            max-width: 400px; 
+            padding: 30px; 
+            border-radius: 25px; 
+            text-align: center; 
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1); 
+        }
+        h2 { 
+            color: #0088cc; 
+            text-transform: uppercase; 
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+        .brand-sub {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+        }
+        input { 
+            width: 90%; 
+            padding: 15px; 
+            margin: 15px 0; 
+            border: 2px solid #eef2f5; 
+            border-radius: 12px; 
+            font-size: 18px;
+            color: #000;
+            background: #fbfcfd;
+            outline: none;
+            transition: 0.3s;
+        }
+        input:focus { border-color: #0088cc; }
+        
+        button.start-btn { 
+            background: #0088cc; 
+            color: white; 
+            border: none; 
+            padding: 16px; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            width: 100%; 
+            font-weight: bold; 
+            font-size: 16px;
+            box-shadow: 0 5px 15px rgba(0,136,204,0.3);
+        }
         .hidden { display: none; }
-        .opt { display: block; width: 100%; margin: 5px 0; padding: 10px; background: #f8f9fa; border: 1px solid #eee; border-radius: 8px; text-align: left; }
+        .opt { 
+            display: block; 
+            width: 100%; 
+            margin: 12px 0; 
+            padding: 16px; 
+            background: #ffffff; 
+            border: 2px solid #f0f3f5; 
+            border-radius: 15px; 
+            text-align: left; 
+            font-size: 16px;
+            cursor: pointer;
+            color: #2c3e50; /* JAVOBLAR RANGI QORA */
+            font-weight: 500;
+            transition: 0.2s;
+        }
+        .opt:active {
+            background: #e1f5fe;
+            border-color: #0088cc;
+            transform: scale(0.98);
+        }
+        #timer { 
+            font-size: 30px; 
+            color: #e74c3c; 
+            font-weight: 800; 
+            margin-bottom: 15px; 
+        }
+        .progress-container {
+            height: 6px; 
+            background: #eee; 
+            width: 100%; 
+            border-radius: 10px; 
+            margin-bottom: 25px;
+            overflow: hidden;
+        }
     </style>
 </head>
 <body>
     <div id="app" class="card">
         <div id="home">
-            <h2>Test Tizimi</h2>
-            <input type="number" id="code" placeholder="Kod (Masalan: 505)">
-            <button onclick="start()">Boshlash</button>
+            <h2>IKRAMOV BIOLOGIYA</h2>
+            <div class="brand-sub">Sifatli ta'lim platformasi</div>
+            <p style="color: #666; font-size: 14px;">Testni boshlash uchun maxsus kodni kiriting</p>
+            <input type="number" id="code" placeholder="Test kodi" inputmode="numeric">
+            <button class="start-btn" onclick="start()">KIRISH</button>
         </div>
+
         <div id="quiz" class="hidden">
-            <div id="timer" style="font-size: 24px; color: red; font-weight: bold;"></div>
-            <h3 id="question"></h3>
+            <div id="timer">00:00</div>
+            <div class="progress-container">
+                <div id="bar" style="height: 100%; background: #2ecc71; width: 0%; transition: 0.4s;"></div>
+            </div>
+            <h3 id="question" style="text-align: left; line-height: 1.5; font-size: 19px;"></h3>
             <div id="options"></div>
         </div>
     </div>
@@ -33,15 +123,14 @@
         let currentTest, timer, answers = [], idx = 0;
 
         async function start() {
-            const code = document.getElementById('code').value;
-            if(!code) return alert("Kodni yozing");
+            const codeInput = document.getElementById('code').value;
+            if(!codeInput) return alert("Kodni kiriting!");
 
             try {
-                // Manzilni to'liq tekshirish uchun:
-                const res = await fetch('/get_test/' + code);
+                const res = await fetch('/get_test/' + codeInput);
                 const data = await res.json();
 
-                if(data.error) return alert("Test topilmadi");
+                if(data.error) return alert("Xato: Test topilmadi!");
 
                 currentTest = data;
                 document.getElementById('home').classList.add('hidden');
@@ -50,20 +139,24 @@
                 let sec = data.time * 60;
                 timer = setInterval(() => {
                     let m = Math.floor(sec/60), s = sec%60;
-                    document.getElementById('timer').innerText = m + ":" + (s<10?'0':'') + s;
+                    document.getElementById('timer').innerText = (m<10?'0':'')+m + ":" + (s<10?'0':'') + s;
                     if(sec-- <= 0) finish();
                 }, 1000);
 
                 showQ(0);
             } catch(e) {
-                alert("Xato: " + e.message);
+                alert("Server xatosi!");
             }
         }
 
         function showQ(n) {
             idx = n;
             const q = currentTest.questions[n];
-            document.getElementById('question').innerText = q.q;
+            document.getElementById('question').innerText = (n+1) + ". " + q.q;
+            
+            // Progress bar
+            document.getElementById('bar').style.width = ((n / currentTest.questions.length) * 100) + "%";
+
             const optDiv = document.getElementById('options');
             optDiv.innerHTML = "";
             q.o.forEach(o => {
@@ -84,11 +177,23 @@
             let score = 0;
             currentTest.questions.forEach((q, i) => { if(answers[i] === q.a) score++; });
             
-            const result = { score: score, total: currentTest.questions.length, code: document.getElementById('code').value, title: currentTest.title };
+            const result = { 
+                score: score, 
+                total: currentTest.questions.length, 
+                code: document.getElementById('code').value, 
+                title: currentTest.title 
+            };
             
             tg.sendData(JSON.stringify(result));
-            document.getElementById('quiz').innerHTML = "<h2>Tugadi!</h2><h3>Ball: " + score + "</h3>";
-            setTimeout(() => tg.close(), 2000);
+            document.getElementById('quiz').innerHTML = `
+                <h2 style="color: #2ecc71;">TUGADI</h2>
+                <p>Sizning natijangiz:</p>
+                <div style="font-size: 45px; font-weight: 900; margin: 20px 0; color: #2c3e50;">${score} / ${result.total}</div>
+                <div style="background: #f8f9fa; padding: 10px; border-radius: 10px; color: #777; font-size: 13px;">
+                    Natijalar muvaffaqiyatli saqlandi.
+                </div>
+            `;
+            setTimeout(() => tg.close(), 3000);
         }
     </script>
 </body>
