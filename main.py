@@ -62,6 +62,7 @@ async def get_test(code: str):
 # 4. ADMIN VA USER BUYRUQLARI
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    # O'zingizning Render manzilingizni tekshiring:
     web_url = "https://test-fzug.onrender.com/static/index.html"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -69,7 +70,7 @@ async def start(message: types.Message):
     ]])
     await message.answer(
         f"Assalomu alaykum <b>{message.from_user.first_name}</b>!\n\n"
-        "IKRAMOV BIOLOGIYA test platformasiga xush kelibsiz. "
+        "IKRAMOV BIOLOGIYA test platformasiga xush kelibsiz.\n"
         "Testni boshlash uchun quyidagi tugmani bosing:", 
         reply_markup=kb,
         parse_mode="HTML"
@@ -129,7 +130,7 @@ async def list_tests(message: types.Message):
     cursor.execute("SELECT code, title FROM tests")
     rows = cursor.fetchall()
     conn.close()
-    if not rows: return await message.answer("Baza bo'sh.")
+    if not rows: return await message.answer("Baza hozircha bo'sh.")
     msg = "📋 <b>Mavjud testlar:</b>\n\n" + "\n".join([f"<code>{r[0]}</code> - {r[1]}" for r in rows])
     await message.answer(msg, parse_mode="HTML")
 
@@ -159,7 +160,7 @@ async def show_stats(message: types.Message):
     cursor.execute("SELECT user_name, nickname, test_title, score, total, date FROM results ORDER BY id DESC LIMIT 20")
     rows = cursor.fetchall()
     conn.close()
-    if not rows: return await message.answer("Natijalar yo'q.")
+    if not rows: return await message.answer("Natijalar hali yo'q.")
     
     text = "📊 <b>So'nggi 20 ta natija:</b>\n\n"
     for r in rows:
@@ -200,11 +201,22 @@ async def run_bot():
 
 async def run_server():
     import uvicorn
-    config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    # Render avtomatik ravishda PORT o'zgaruvchisini beradi
+    port = int(os.getenv("PORT", 8000))
+    config = uvicorn.Config(app, host="0.0.0.0", port=port)
     server = uvicorn.Server(config)
     await server.serve()
 
 async def main():
+    # SIZDAGI XATO SHU YERDA EDI: Qavslar to'liq yopildi.
     await asyncio.gather(
         run_bot(),
         run_server()
+    )
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Bot to'xtatildi")
+    
