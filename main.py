@@ -29,7 +29,7 @@ async def get_test(code: str):
 async def start(message: types.Message):
     # MUHIM: URL qismiga o'z hostingingiz manzilini yozasiz
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Testni ochish", web_app=WebAppInfo(url="https://sizning-domen.uz/static/index.html"))
+        InlineKeyboardButton(text="Testni ochish", web_app=WebAppInfo(url="https://test-fzug.onrender.com"))
     ]])
     await message.answer("Assalomu alaykum! Test kodini kiritish uchun tugmani bosing.", reply_markup=kb)
 
