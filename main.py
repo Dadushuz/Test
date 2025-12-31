@@ -204,17 +204,19 @@ async def run_server():
     server = uvicorn.Server(config)
     await server.serve()
 
+# ... (yuqoridagi kodlar o'zgarishsiz qoladi)
+
 async def main():
     # Ikkala vazifani ham bir vaqtda ishga tushiramiz
+    logging.info("Server va Bot ishga tushmoqda...")
     await asyncio.gather(
         run_bot(),
         run_server()
     )
+
 if __name__ == "__main__":
-import asyncio
-try:
-    asyncio.run(main())
-except (KeyboardInterrupt, SystemExit):
-    logging.info("Bot to'xtatildi")
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Dastur to'xtatildi")
         
-    
