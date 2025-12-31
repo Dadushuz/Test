@@ -1,6 +1,5 @@
-fastapi
-uvicorn
 python-multipart
 aiogram
-asyncpg
-
+fastapi
+uvicorn
+psycopg2-binary
