@@ -188,12 +188,18 @@ async def result_handler(message: types.Message):
 
 # 9. ASOSIY QISIM
 async def main():
-    asyncio.create_task(dp.start_polling(bot))
+    # Botni ishga tushirish (xatoliklarni ko'rsatish bilan)
+    try:
+        logging.info("Bot polling boshlanmoqda...")
+        # Webhook bor bo'lsa o'chirib, keyin polling boshlaydi
+        await bot.delete_webhook(drop_pending_updates=True)
+        asyncio.create_task(dp.start_polling(bot))
+    except Exception as e:
+        logging.error(f"Botni ishga tushirishda xato: {e}")
+
     import uvicorn
     config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
     server = uvicorn.Server(config)
     await server.serve()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    
     
