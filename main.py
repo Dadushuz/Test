@@ -6,7 +6,7 @@ from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 import sqlite3, json, uvicorn
 
 app = FastAPI()
-TOKEN = "432727459:AAFXdus6mheQm8kG50-jpFR2qHu2UUgmqDk"
+TOKEN = '432727459:AAFXdus6mheQm8kG50-jpFR2qHu2UUgmqDk'
 ADMIN_ID = 129932291  # Telegram ID-ingiz
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
