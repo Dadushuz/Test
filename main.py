@@ -12,44 +12,63 @@ from aiogram.filters import Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 import uvicorn
 
+# ======================================================
 # 1. SOZLAMALAR VA KONFIGURATSIYA
+# ======================================================
+
 logging.basicConfig(level=logging.INFO)
+
+# Bot Tokeni (Render Environment Variables dan olinadi)
 TOKEN = os.getenv("BOT_TOKEN")
-# Admin ID raqam ekanligini ta'minlaymiz (Xatolik bo'lmasligi uchun)
-ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
+
+# Admin ID (Raqam formatida ekanligini tekshiramiz)
+try:
+    ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
+except:
+    ADMIN_ID = 129932291  # Agar xato bo'lsa, standart ID
+
+# WebApp manzili
 WEBAPP_URL = "https://test-fzug.onrender.com/static/index.html"
 
-# Siz taqdim etgan Supabase havolasi (To'g'ridan-to'g'ri kodga yozildi)
-DATABASE_URL = "postgresql://postgres:rkbfVJlp96S85bnu@db.zvtrujwsydewfcaotwvx.supabase.co:5432/postgres"
+# ✅ SUPABASE ULANISH HAVOLASI (Port 6543 - Transaction Pooler)
+# Bu havola Renderda "Network unreachable" xatosini oldini oladi.
+DATABASE_URL = "postgresql://postgres.zvtrujwsydewfcaotwvx:rkbfVJlp96S85bnu@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
 
 app = FastAPI()
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- YORDAMCHI FUNKSIYALAR ---
+# ======================================================
+# 2. YORDAMCHI FUNKSIYALAR
+# ======================================================
 
 def clean_html(text):
-    """Telegram HTML formatidagi xatoliklarni oldini olish uchun matnni tozalar"""
+    """
+    Telegram HTML formatidagi xatoliklarni oldini olish uchun.
+    < va > belgilarini xavfsiz formatga o'tkazadi va teglarni tozalaydi.
+    """
     if not text: return ""
     text = str(text)
-    # Barcha mavjud HTML teglarni olib tashlaymiz
+    # Barcha mavjud HTML teglarni olib tashlaymiz (xavfsizlik uchun)
     clean = re.compile('<.*?>')
     text = re.sub(clean, '', text)
-    # < va > belgilarini xavfsiz formatga o'tkazamiz
+    # Belgi almashtirish
     return text.replace("<", "&lt;").replace(">", "&gt;")
 
 def get_db_connection():
     """Supabase bazasiga ulanish funksiyasi"""
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    return psycopg2.connect(DATABASE_URL)
 
-# 2. BAZANI TAYYORLASH (MIGRATSIYA)
 def init_db():
-    """Jadvallarni PostgreSQL formatida yaratish"""
+    """
+    Baza jadvallarini yaratish (PostgreSQL formatida).
+    Agar jadvallar mavjud bo'lsa, ularga tegmaydi.
+    """
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Testlar jadvali
+        # 1. Testlar jadvali
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tests (
                 code TEXT PRIMARY KEY, 
@@ -58,7 +77,7 @@ def init_db():
             )
         ''')
         
-        # Savollar jadvali (SERIAL - avtomatik oshib boruvchi ID)
+        # 2. Savollar jadvali (SERIAL - avtomatik ID)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS questions (
                 id SERIAL PRIMARY KEY, 
@@ -69,7 +88,7 @@ def init_db():
             )
         ''')
         
-        # Natijalar jadvali
+        # 3. Natijalar jadvali
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS results (
                 id SERIAL PRIMARY KEY, 
@@ -84,7 +103,7 @@ def init_db():
             )
         ''')
         
-        # Foydalanuvchilar jadvali
+        # 4. Foydalanuvchilar jadvali
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id BIGINT PRIMARY KEY, 
@@ -97,24 +116,29 @@ def init_db():
         conn.commit()
         cursor.close()
         conn.close()
-        logging.info("✅ Baza jadvallari muvaffaqiyatli tekshirildi.")
+        logging.info("✅ Baza (Supabase) jadvallari muvaffaqiyatli tekshirildi.")
     except Exception as e:
         logging.error(f"❌ Baza yaratishda xato: {e}")
 
-# Ilovani ishga tushirishdan oldin bazani tayyorlash
+# Dastur boshlanishida bazani tekshiramiz
 init_db()
 
+# ======================================================
 # 3. SERVER VA API (FASTAPI)
+# ======================================================
+
+# Statik fayllar (index.html, css, js) uchun papka
 if not os.path.exists("static"): os.makedirs("static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
+    """Server ishlayotganini tekshirish uchun"""
     return {"status": "🚀 Bot va Server Supabase bilan ishlamoqda!"}
 
 @app.get("/get_test/{code}")
 async def get_test(code: str):
-    """WebApp uchun test savollarini qaytarish"""
+    """WebApp uchun test savollarini bazadan olib beradi"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -147,7 +171,7 @@ async def get_test(code: str):
 
 @app.post("/submit_result")
 async def submit_result(request: Request):
-    """WebApp'dan kelgan natijani saqlash va adminga yuborish"""
+    """O'quvchi yechgan test natijasini qabul qilish"""
     try:
         data = await request.json()
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -186,10 +210,13 @@ async def submit_result(request: Request):
         logging.error(f"API Xatosi (/submit_result): {e}")
         return {"status": "error"}
 
-# 4. TELEGRAM BOT HANDLERLARI (AIOGRAM)
+# ======================================================
+# 4. TELEGRAM BOT KOMANDALARI (AIOGRAM)
+# ======================================================
 
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
+    """Botga start bosilganda ishlaydi"""
     user_id = message.from_user.id
     full_name = clean_html(message.from_user.full_name)
     username = f"@{message.from_user.username}" if message.from_user.username else "Mavjud emas"
@@ -199,7 +226,7 @@ async def start_handler(message: types.Message):
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Foydalanuvchi borligini tekshirish
+    # Foydalanuvchi bazada borligini tekshirish
     cursor.execute("SELECT invite_count FROM users WHERE user_id=%s", (user_id,))
     user_data = cursor.fetchone()
 
@@ -218,16 +245,15 @@ async def start_handler(message: types.Message):
             (user_id, invited_by, now)
         )
         
-        # Agar taklif bo'lsa, taklif qiluvchiga bonus yozish
+        # Agar birov orqali kirgan bo'lsa, unga ball berish
         if invited_by:
             cursor.execute("UPDATE users SET invite_count = invite_count + 1 WHERE user_id=%s", (invited_by,))
-            # Taklif qilgan odamga xabar (xatolik bermasligi uchun try-except)
             try: await bot.send_message(invited_by, "🎉 <b>Tabriklaymiz!</b> Do'stingiz havola orqali botga qo'shildi.", parse_mode="HTML")
             except: pass
             
         conn.commit()
         
-        # Adminga yangi odam haqida xabar
+        # Adminga yangi a'zo haqida xabar
         admin_msg = (
             f"👤 <b>YANGI FOYDALANUVCHI</b>\n\n"
             f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
@@ -246,7 +272,7 @@ async def start_handler(message: types.Message):
 
     # --- JAVOB QAYTARISH MANTIQI ---
     
-    # 1. Agar Admin bo'lsa
+    # 1. Agar Admin bo'lsa - hamma narsa ochiq
     if user_id == ADMIN_ID:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="Testni Boshlash (Admin) 📝", web_app=WebAppInfo(url=WEBAPP_URL))
@@ -432,7 +458,9 @@ async def upload_test(message: types.Message):
     finally:
         conn.close()
 
+# ======================================================
 # 5. ASOSIY ISHGA TUSHIRISH QISMI
+# ======================================================
 async def main():
     # Webhookni o'chirish (Conflict xatosini 100% oldini oladi)
     await bot.delete_webhook(drop_pending_updates=True)
@@ -446,3 +474,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
