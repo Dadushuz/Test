@@ -6,8 +6,8 @@ from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 import sqlite3, json, uvicorn
 
 app = FastAPI()
-TOKEN = "SIZNING_BOT_TOKENINGIZ"
-ADMIN_ID = 12345678  # Telegram ID-ingiz
+TOKEN = "432727459:AAFXdus6mheQm8kG50-jpFR2qHu2UUgmqDk"
+ADMIN_ID = 129932291  # Telegram ID-ingiz
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -29,7 +29,7 @@ async def get_test(code: str):
 async def start(message: types.Message):
     # MUHIM: URL qismiga o'z hostingingiz manzilini yozasiz
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Testni ochish", web_app=WebAppInfo(url="https://test-fzug.onrender.com"))
+        InlineKeyboardButton(text="Testni ochish", web_app=WebAppInfo(url="https://test-fzug.onrender.com/static/index.html"))
     ]])
     await message.answer("Assalomu alaykum! Test kodini kiritish uchun tugmani bosing.", reply_markup=kb)
 
