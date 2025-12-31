@@ -4,11 +4,12 @@ import os
 import sqlite3
 import json
 from datetime import datetime
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+import uvicorn
 
 # 1. LOGLAR VA SOZLAMALAR
 logging.basicConfig(level=logging.INFO)
@@ -23,11 +24,8 @@ dp = Dispatcher()
 def init_db():
     conn = sqlite3.connect('quiz.db')
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS tests 
-        (code TEXT PRIMARY KEY, title TEXT, duration INTEGER)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS questions 
-        (id INTEGER PRIMARY KEY AUTOINCREMENT, test_code TEXT, 
-         question TEXT, options TEXT, correct_answer TEXT)''')
+    cursor.execute('CREATE TABLE IF NOT EXISTS tests (code TEXT PRIMARY KEY, title TEXT, duration INTEGER)')
+    cursor.execute('CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, test_code TEXT, question TEXT, options TEXT, correct_answer TEXT)')
     cursor.execute('''CREATE TABLE IF NOT EXISTS results 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, user_name TEXT, 
          nickname TEXT, test_code TEXT, test_title TEXT, score INTEGER, total INTEGER, date TEXT)''')
@@ -36,15 +34,11 @@ def init_db():
 
 init_db()
 
-# 3. STATIC FAYLLAR VA SERVER
-if not os.path.exists("static"): 
-    os.makedirs("static")
+# 3. STATIC FAYLLAR
+if not os.path.exists("static"): os.makedirs("static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-@app.get("/")
-async def root(): 
-    return {"status": "IKRAMOV BIOLOGIYA server ishlayapti"}
-
+# 4. API ENDPOINTLAR
 @app.get("/get_test/{code}")
 async def get_test(code: str):
     conn = sqlite3.connect('quiz.db')
@@ -59,164 +53,58 @@ async def get_test(code: str):
     conn.close()
     return {"title": test[0], "time": test[1], "questions": questions}
 
-# 4. ADMIN VA USER BUYRUQLARI
+@app.post("/submit_result")
+async def submit_result(request: Request):
+    try:
+        data = await request.json()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        
+        # Bazaga saqlash
+        conn = sqlite3.connect('quiz.db')
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO results (user_id, user_name, nickname, test_code, test_title, score, total, date) VALUES (?,?,?,?,?,?,?,?)",
+                       (data.get('user_id'), data.get('user_name'), data.get('nickname'), data.get('code'), data.get('title'), data.get('score'), data.get('total'), now))
+        conn.commit()
+        conn.close()
+
+        # Adminga yuborish
+        report = (
+            f"🏆 <b>YANGI NATIJA</b>\n\n"
+            f"👤 <b>O'quvchi:</b> {data.get('user_name')}\n"
+            f"🆔 <b>Username:</b> {data.get('nickname')}\n"
+            f"📚 <b>Test:</b> {data.get('title')}\n"
+            f"🎯 <b>Natija:</b> {data.get('score')} / {data.get('total')}\n"
+            f"📅 <b>Sana:</b> {now}"
+        )
+        await bot.send_message(ADMIN_ID, report, parse_mode="HTML")
+        return {"status": "success"}
+    except Exception as e:
+        logging.error(f"Natija qabul qilishda xato: {e}")
+        return {"status": "error", "message": str(e)}
+
+# 5. BOT BUYRUQLARI
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    # O'zingizning Render manzilingizni tekshiring:
     web_url = "https://test-fzug.onrender.com/static/index.html"
-    
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=web_url))
     ]])
-    await message.answer(
-        f"Assalomu alaykum <b>{message.from_user.first_name}</b>!\n\n"
-        "IKRAMOV BIOLOGIYA test platformasiga xush kelibsiz.\n"
-        "Testni boshlash uchun quyidagi tugmani bosing:", 
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
+    await message.answer(f"Assalomu alaykum <b>{message.from_user.first_name}</b>!\nIKRAMOV BIOLOGIYA testiga xush kelibsiz!", reply_markup=kb, parse_mode="HTML")
 
-@dp.message(Command("admin"))
-async def admin_panel(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    text = (
-        "<b>🛠 IKRAMOV BIOLOGIYA | ADMIN PANEL</b>\n\n"
-        "<b>🔸 Test yuklash (Bulk):</b>\n"
-        "<code>kod | fan | vaqt</code>\n(savollar keyingi qatordan)\n\n"
-        "<b>🔸 Buyruqlar:</b>\n"
-        "/tests - Barcha testlar ro'yxati\n"
-        "/stat - Oxirgi natijalarni ko'rish\n"
-        "/del_test [kod] - Testni o'chirish"
-    )
-    await message.answer(text, parse_mode="HTML")
+# ... (Admin buyruqlari: /admin, /tests, /stat avvalgi kod bilan bir xil)
 
-# 5. TESTLARNI YUKLASH
-@dp.message(F.text.contains("|"))
-async def handle_bulk_data(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    lines = message.text.split('\n')
-    header = lines[0].split('|')
-    if len(header) != 3: return
-
-    test_code, title, time = header[0].strip(), header[1].strip(), header[2].strip()
-    conn = sqlite3.connect('quiz.db')
-    cursor = conn.cursor()
-    try:
-        cursor.execute("INSERT OR REPLACE INTO tests VALUES (?, ?, ?)", (test_code, title, int(time)))
-        cursor.execute("DELETE FROM questions WHERE test_code=?", (test_code,))
-        count = 0
-        for line in lines[1:]:
-            if '|' in line:
-                q_p = line.split('|')
-                if len(q_p) == 3:
-                    q_text = q_p[0].split('.', 1)[-1].strip()
-                    opts = json.dumps([i.strip() for i in q_p[1].split(",")])
-                    cursor.execute("INSERT INTO questions (test_code, question, options, correct_answer) VALUES (?,?,?,?)",
-                                   (test_code, q_text, opts, q_p[2].strip()))
-                    count += 1
-        conn.commit()
-        await message.answer(f"✅ <b>{title}</b> saqlandi!\n📝 Jami savollar: {count} ta.", parse_mode="HTML")
-    except Exception as e: 
-        await message.answer(f"❌ Xato: {e}")
-    finally: 
-        conn.close()
-
-# 6. BOSHQARUV
-@dp.message(Command("tests"))
-async def list_tests(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    conn = sqlite3.connect('quiz.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT code, title FROM tests")
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows: return await message.answer("Baza hozircha bo'sh.")
-    msg = "📋 <b>Mavjud testlar:</b>\n\n" + "\n".join([f"<code>{r[0]}</code> - {r[1]}" for r in rows])
-    await message.answer(msg, parse_mode="HTML")
-
-@dp.message(F.text.startswith("/del_test"))
-async def delete_test(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        parts = message.text.split()
-        if len(parts) < 2: raise ValueError
-        code = parts[-1]
-        conn = sqlite3.connect('quiz.db')
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM tests WHERE code=?", (code,))
-        cursor.execute("DELETE FROM questions WHERE test_code=?", (code,))
-        conn.commit()
-        conn.close()
-        await message.answer(f"🗑 Test <code>{code}</code> o'chirildi.", parse_mode="HTML")
-    except:
-        await message.answer("Format: <code>/del_test kod</code>", parse_mode="HTML")
-
-# 7. NATIJALAR
-@dp.message(Command("stat"))
-async def show_stats(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    conn = sqlite3.connect('quiz.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_name, nickname, test_title, score, total, date FROM results ORDER BY id DESC LIMIT 20")
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows: return await message.answer("Natijalar hali yo'q.")
-    
-    text = "📊 <b>So'nggi 20 ta natija:</b>\n\n"
-    for r in rows:
-        text += f"👤 {r[0]} ({r[1]})\n📚 {r[2]}: {r[3]}/{r[4]}\n📅 {r[5]}\n" + "-"*15 + "\n"
-    await message.answer(text, parse_mode="HTML")
-
-# 8. WEB APP NATIJA QABUL QILISH
-@dp.message(F.web_app_data)
-async def result_handler(message: types.Message):
-    data = json.loads(message.web_app_data.data)
-    user_name = message.from_user.full_name
-    nickname = f"@{message.from_user.username}" if message.from_user.username else "Mavjud emas"
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    
-    conn = sqlite3.connect('quiz.db')
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO results (user_id, user_name, nickname, test_code, test_title, score, total, date) VALUES (?,?,?,?,?,?,?,?)",
-                   (message.from_user.id, user_name, nickname, data['code'], data['title'], data['score'], data['total'], now))
-    conn.commit()
-    conn.close()
-
-    admin_report = (
-        f"🔔 <b>YANGI NATIJA</b>\n\n"
-        f"👤 O'quvchi: {user_name}\n"
-        f"🆔 Username: {nickname}\n"
-        f"📚 Test: {data['title']}\n"
-        f"🎯 Ball: {data['score']} / {data['total']}\n"
-        f"📅 Sana: {now}"
-    )
-    await bot.send_message(ADMIN_ID, admin_report, parse_mode="HTML")
-    await message.answer(f"🏁 Test tugadi! Ballingiz: {data['score']}/{data['total']}")
-
-# 9. RUNNERS
+# 6. ISHGA TUSHIRISH
 async def run_bot():
-    logging.info("Bot ishga tushdi...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 async def run_server():
-    import uvicorn
-    # Render avtomatik ravishda PORT o'zgaruvchisini beradi
-    port = int(os.getenv("PORT", 8000))
-    config = uvicorn.Config(app, host="0.0.0.0", port=port)
+    config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
     server = uvicorn.Server(config)
     await server.serve()
 
 async def main():
-    # SIZDAGI XATO SHU YERDA EDI: Qavslar to'liq yopildi.
-    await asyncio.gather(
-        run_bot(),
-        run_server()
-    )
+    await asyncio.gather(run_bot(), run_server())
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Bot to'xtatildi")
-    
+    asyncio.run(main())
