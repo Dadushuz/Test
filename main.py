@@ -99,20 +99,30 @@ async def handle_admin_data(message: types.Message):
     cursor = conn.cursor()
     
     try:
+        # Jadvallarni majburiy yaratish (agar yo'q bo'lsa)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS tests 
+            (code TEXT PRIMARY KEY, title TEXT, duration INTEGER)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS questions 
+            (id INTEGER PRIMARY KEY AUTOINCREMENT, test_code TEXT, 
+             question TEXT, options TEXT, correct_answer TEXT)''')
+        conn.commit()
+
         if len(parts) == 3: # Test qo'shish
             cursor.execute("INSERT OR REPLACE INTO tests VALUES (?, ?, ?)", 
                            (parts[0].strip(), parts[1].strip(), int(parts[2].strip())))
-            await message.answer("✅ Yangi test bazaga qo'shildi.")
+            await message.answer(f"✅ Test qo'shildi: {parts[1].strip()}")
         elif len(parts) == 4: # Savol qo'shish
             options = json.dumps([i.strip() for i in parts[2].split(",")])
             cursor.execute("INSERT INTO questions (test_code, question, options, correct_answer) VALUES (?,?,?,?)",
                            (parts[0].strip(), parts[1].strip(), options, parts[3].strip()))
-            await message.answer("➕ Savol muvaffaqiyatli qo'shildi.")
+            await message.answer(f"➕ Savol qo'shildi ({parts[0].strip()}-kodga).")
+        
         conn.commit()
     except Exception as e:
-        await message.answer(f"❌ Xatolik yuz berdi: {e}")
+        await message.answer(f"❌ Xatolik yuz berdi: {str(e)}")
     finally:
         conn.close()
+
 
 # Botni fonda ishga tushirish
 async def run_bot():
