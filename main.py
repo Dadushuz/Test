@@ -14,6 +14,7 @@ import uvicorn
 # 1. LOGLAR VA SOZLAMALAR
 logging.basicConfig(level=logging.INFO)
 TOKEN = os.getenv("BOT_TOKEN")
+# Render'da ADMIN_ID faqat raqamlardan iboratligini tekshiring
 ADMIN_ID = int(os.getenv("ADMIN_ID", "129932291"))
 WEBAPP_URL = "https://test-fzug.onrender.com/static/index.html"
 
@@ -34,24 +35,29 @@ def init_db():
 
 init_db()
 
-# 3. STATIC FAYLLAR VA API
+# 3. SERVER VA API
 if not os.path.exists("static"): os.makedirs("static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def root():
+    return {"status": "running"}
 
 @app.get("/get_test/{code}")
 async def get_test(code: str):
     conn = sqlite3.connect('quiz.db', timeout=20)
     cursor = conn.cursor()
-    cursor.execute("SELECT title, duration FROM tests WHERE code=?", (code,))
+    cursor.execute("SELECT title, duration FROM tests WHERE code=?", (code.strip(),))
     test = cursor.fetchone()
     if not test: 
         conn.close()
-        return {"error": "Topilmadi"}
-    cursor.execute("SELECT question, options, correct_answer FROM questions WHERE test_code=?", (code,))
+        return {"error": "Test topilmadi"}
+    cursor.execute("SELECT question, options, correct_answer FROM questions WHERE test_code=?", (code.strip(),))
     questions = [{"q": q[0], "o": json.loads(q[1]), "a": q[2]} for q in cursor.fetchall()]
     conn.close()
     return {"title": test[0], "time": test[1], "questions": questions}
 
+# NATIJA QABUL QILISH VA ADMINGA YUBORISH (MUHIM!)
 @app.post("/submit_result")
 async def submit_result(request: Request):
     try:
@@ -64,11 +70,17 @@ async def submit_result(request: Request):
         conn.commit()
         conn.close()
         
-        report = (f"🏆 <b>YANGI NATIJA</b>\n\n👤 <b>O'quvchi:</b> {data.get('user_name')}\n"
-                  f"📚 <b>Test:</b> {data.get('title')}\n🎯 <b>Natija:</b> {data.get('score')} / {data.get('total')}\n📅 {now}")
+        # Admin xabari
+        report = (f"🏆 <b>YANGI NATIJA</b>\n\n"
+                  f"👤 <b>O'quvchi:</b> {data.get('user_name')}\n"
+                  f"📚 <b>Test:</b> {data.get('title')}\n"
+                  f"🎯 <b>Natija:</b> {data.get('score')} / {data.get('total')}\n"
+                  f"📅 <b>Sana:</b> {now}")
         await bot.send_message(ADMIN_ID, report, parse_mode="HTML")
         return {"status": "success"}
-    except: return {"status": "error"}
+    except Exception as e:
+        logging.error(f"Xato: {e}")
+        return {"status": "error"}
 
 # 4. BOT BUYRUQLARI
 @dp.message(Command("start"))
@@ -76,10 +88,10 @@ async def start(message: types.Message):
     user_id = message.from_user.id
     args = message.text.split()
     
-    # ADMIN UCHUN DARXOL RUXSAT
+    # ADMIN UCHUN DARHOL RUXSAT
     if user_id == ADMIN_ID:
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash (Admin) 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
-        return await message.answer(f"👑 <b>Xush kelibsiz, Admin!</b>\nBarcha cheklovlar siz uchun olib tashlangan.", reply_markup=kb, parse_mode="HTML")
+        return await message.answer(f"👑 <b>Admin xush kelibsiz!</b>", reply_markup=kb, parse_mode="HTML")
 
     conn = sqlite3.connect('quiz.db', timeout=20)
     cursor = conn.cursor()
@@ -88,7 +100,7 @@ async def start(message: types.Message):
     
     if not user:
         invited_by = int(args[1]) if len(args) > 1 and args[1].isdigit() and int(args[1]) != user_id else None
-        cursor.execute("INSERT INTO users (user_id, invited_by, invite_count) VALUES (?, ?, 0)", (user_id, invited_by))
+        cursor.execute("INSERT OR IGNORE INTO users (user_id, invited_by, invite_count) VALUES (?, ?, 0)", (user_id, invited_by))
         if invited_by:
             cursor.execute("UPDATE users SET invite_count = invite_count + 1 WHERE user_id=?", (invited_by,))
             try: await bot.send_message(invited_by, "🎉 <b>Yangi taklif!</b> Do'stingiz qo'shildi.", parse_mode="HTML")
@@ -102,27 +114,14 @@ async def start(message: types.Message):
     if invite_count < 3:
         bot_info = await bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
-        text = (f"👋 <b>Assalomu alaykum!</b>\n\nTestga kirish uchun 3 ta do'st taklif qiling.\n"
-                f"Siz taklif qildingiz: <b>{invite_count} / 3</b>\n\nTaklif havolangiz:\n<code>{ref_link}</code>")
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Do'stlarga ulashish 🚀", switch_inline_query=f"\nBiologiya testini birga yechamiz! Havola: {ref_link}")]])
+        text = (f"👋 <b>Assalomu alaykum!</b>\n\nTestni boshlash uchun <b>3 ta</b> do'stingizni taklif qiling.\n"
+                f"Takliflar: <b>{invite_count} / 3</b>\n\nLink: <code>{ref_link}</code>")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🚀 Ulashish", switch_inline_query=f"\nBiologiya testini birga yechamiz! {ref_link}")]])
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
-        await message.answer(f"✅ <b>Ruxsat berildi!</b> Testni boshlashingiz mumkin:", reply_markup=kb, parse_mode="HTML")
+        await message.answer(f"✅ <b>Ruxsat berildi!</b>", reply_markup=kb, parse_mode="HTML")
 
-# ADMIN PANEL BUYRUG'I (TO'G'RILANDI)
-@dp.message(Command("admin"))
-async def admin_panel(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    text = (
-        "🛠 <b>ADMIN PANEL</b>\n\n"
-        "📋 /tests - Mavjud testlar ro'yxati\n"
-        "📊 /stat - Oxirgi natijalar\n"
-        "🗑 <code>/del_test kod</code> - Testni o'chirish"
-    )
-    await message.answer(text, parse_mode="HTML")
-
-# --- TANISH-BILISH KOMANDASI ---
 @dp.message(Command("tanishbilish"))
 async def tanish_bilish(message: types.Message):
     user_id = message.from_user.id
@@ -131,9 +130,31 @@ async def tanish_bilish(message: types.Message):
     cursor.execute("INSERT OR REPLACE INTO users (user_id, invited_by, invite_count) VALUES (?, ?, 3)", (user_id, None))
     conn.commit()
     conn.close()
-    
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
-    await message.answer("🤫 <b>Tanish-bilish ishga tushdi!</b>\nSizga maxsus ruxsat berildi.", reply_markup=kb, parse_mode="HTML")
+    await message.answer("🤫 <b>Maxsus ruxsat berildi!</b>", reply_markup=kb, parse_mode="HTML")
+
+@dp.message(Command("rating"))
+async def show_rating(message: types.Message):
+    args = message.text.split()
+    if len(args) < 2: return await message.answer("⚠️ Kodni kiriting. Masalan: <code>/rating 001</code>", parse_mode="HTML")
+    t_code = args[1].strip()
+    conn = sqlite3.connect('quiz.db', timeout=20)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_name, score, total FROM results WHERE test_code=? ORDER BY score DESC, date ASC LIMIT 10", (t_code,))
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows: return await message.answer("❌ Bu test bo'yicha natijalar yo'q.")
+    res = f"🏆 <b>TEST {t_code} NATIJALARI</b>\n\n"
+    rewards = ["🥇 50.000", "🥈 30.000", "🥉 20.000"]
+    for i, r in enumerate(rows, 1):
+        medal = f"({rewards[i-1]} so'm)" if i <= 3 else "🔹"
+        res += f"{i}. <b>{r[0]}</b> — {r[1]}/{r[2]} ball {medal}\n"
+    await message.answer(res, parse_mode="HTML")
+
+@dp.message(Command("admin"))
+async def admin_panel(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    await message.answer("🛠 <b>ADMIN PANEL</b>\n/tests - Ro'yxat\n/stat - Natijalar")
 
 @dp.message(Command("tests"))
 async def list_tests(message: types.Message):
@@ -143,23 +164,10 @@ async def list_tests(message: types.Message):
     cursor.execute("SELECT code, title FROM tests")
     rows = cursor.fetchall()
     conn.close()
-    if not rows: return await message.answer("📭 Baza bo'sh.", parse_mode="HTML")
-    res = "📋 <b>MAVJUD TESTLAR:</b>\n\n" + "\n".join([f"🔹 <code>{r[0]}</code> - {r[1]}" for r in rows])
+    if not rows: return await message.answer("Baza bo'sh.")
+    res = "📋 <b>Mavjud testlar:</b>\n" + "\n".join([f"🔹 <code>{r[0]}</code> - {r[1]}" for r in rows])
     await message.answer(res, parse_mode="HTML")
 
-@dp.message(Command("stat"))
-async def show_stats(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    conn = sqlite3.connect('quiz.db', timeout=20)
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_name, test_title, score, total FROM results ORDER BY id DESC LIMIT 15")
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows: return await message.answer("📊 Natijalar yo'q.", parse_mode="HTML")
-    res = "📊 <b>OXIRGI NATIJALAR:</b>\n\n" + "\n".join([f"👤 {r[0]} | {r[1]}: <b>{r[2]}/{r[3]}</b>" for r in rows])
-    await message.answer(res, parse_mode="HTML")
-
-# TESTLARNI YUKLASH (SAVOLLAR SAQLANISHI UCHUN)
 @dp.message(F.text.contains("|"))
 async def handle_upload(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
@@ -172,7 +180,6 @@ async def handle_upload(message: types.Message):
     try:
         cursor.execute("INSERT OR REPLACE INTO tests VALUES (?,?,?)", (t_code, t_title, int(t_time)))
         cursor.execute("DELETE FROM questions WHERE test_code=?", (t_code,))
-        count = 0
         for line in lines[1:]:
             if '|' in line:
                 p = line.split('|')
@@ -180,18 +187,19 @@ async def handle_upload(message: types.Message):
                     q_text = p[0].split('.', 1)[-1].strip()
                     opts = json.dumps([i.strip() for i in p[1].split(",")])
                     cursor.execute("INSERT INTO questions (test_code, question, options, correct_answer) VALUES (?,?,?,?)", (t_code, q_text, opts, p[2].strip()))
-                    count += 1
         conn.commit()
-        await message.answer(f"✅ <b>{t_title}</b> saqlandi! ({count} ta savol)", parse_mode="HTML")
-    except Exception as e: await message.answer(f"❌ Xato: {e}")
+        await message.answer(f"✅ <b>{t_title}</b> muvaffaqiyatli saqlandi!", parse_mode="HTML")
     finally: conn.close()
 
 # 5. ISHGA TUSHIRISH
 async def main():
+    # Conflictni bartaraf etish uchun webhookni o'chirish
     await bot.delete_webhook(drop_pending_updates=True)
     config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
     server = uvicorn.Server(config)
+    # Bir vaqtning o'zida ham bot ham serverni ishlatish
     await asyncio.gather(dp.start_polling(bot), server.serve())
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
