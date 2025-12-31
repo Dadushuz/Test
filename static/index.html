@@ -11,7 +11,7 @@
         .btn { background: #0088cc; color: white; border: none; padding: 16px; border-radius: 12px; width: 100%; font-weight: bold; cursor: pointer; }
         .opt { display: block; width: 100%; margin: 12px 0; padding: 15px; background: #fff; border: 2px solid #f0f3f5; border-radius: 12px; text-align: left; cursor: pointer; transition: 0.2s; }
         
-        /* Ranglar mantiqi */
+        /* Vizual effektlar */
         .correct { background-color: #2ecc71 !important; color: white !important; border-color: #27ae60 !important; }
         .wrong { background-color: #e74c3c !important; color: white !important; border-color: #c0392b !important; }
         .disabled { pointer-events: none; }
@@ -38,6 +38,7 @@
         <div id="result" class="hidden">
             <h2 style="color: #2ecc71;">TUGADI ✅</h2>
             <div id="scoreDisplay" style="font-size: 50px; font-weight: 900; margin: 20px 0;"></div>
+            <p id="savingStatus" style="color: #888;">Natija saqlanmoqda...</p>
             <button class="btn" onclick="tg.close()">YOPISH</button>
         </div>
     </div>
@@ -51,12 +52,16 @@
 
         async function startQuiz() {
             const code = document.getElementById('testCode').value.trim();
+            if(!code) return alert("Kodni kiriting");
+            
             const res = await fetch(`/get_test/${code}`);
             const data = await res.json();
             if(data.error) return alert(data.error);
+            
             currentTest = data;
             document.getElementById('home').classList.add('hidden');
             document.getElementById('quiz').classList.remove('hidden');
+            
             let s = data.time * 60;
             timer = setInterval(() => {
                 let m = Math.floor(s/60), sec = s%60;
@@ -99,14 +104,36 @@
             clearInterval(timer);
             let score = 0;
             currentTest.questions.forEach((q, i) => { if(userAnswers[i] === q.a) score++; });
+            
             const user = tg.initDataUnsafe.user || {};
             const resData = {
-                user_id: user.id, user_name: user.first_name, nickname: user.username || "Yo'q",
-                score: score, total: currentTest.questions.length, code: document.getElementById('testCode').value, title: currentTest.title
+                user_id: user.id || 0,
+                user_name: user.first_name || "Noma'lum",
+                nickname: user.username ? "@" + user.username : "Yo'q",
+                score: score,
+                total: currentTest.questions.length,
+                code: document.getElementById('testCode').value,
+                title: currentTest.title
             };
-            document.getElementById('quiz').classList.add('hidden'); document.getElementById('result').classList.remove('hidden');
+
+            document.getElementById('quiz').classList.add('hidden'); 
+            document.getElementById('result').classList.remove('hidden');
             document.getElementById('scoreDisplay').innerText = `${score} / ${resData.total}`;
-            await fetch('/submit_result', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(resData) });
+
+            try {
+                const response = await fetch('/submit_result', { 
+                    method: 'POST', 
+                    headers: {'Content-Type':'application/json'}, 
+                    body: JSON.stringify(resData) 
+                });
+                if(response.ok) {
+                    document.getElementById('savingStatus').innerText = "Natija adminga yuborildi ✅";
+                } else {
+                    document.getElementById('savingStatus').innerText = "Yuborishda xato yuz berdi ❌";
+                }
+            } catch (e) {
+                document.getElementById('savingStatus').innerText = "Server bilan aloqa yo'q ❌";
+            }
         }
     </script>
 </body>
