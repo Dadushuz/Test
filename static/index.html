@@ -1,87 +1,109 @@
+
 <!DOCTYPE html>
 <html lang="uz">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test Tizimi</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IKRAMOV BIOLOGIYA</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        :root { --tg-theme-button-color: #0088cc; --tg-theme-text-color: #000; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; }
-        .card { background: white; width: 100%; max-width: 400px; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
-        input { width: 90%; padding: 12px; margin: 15px 0; border: 2px solid #ddd; border-radius: 10px; font-size: 16px; outline: none; }
-        button { background: var(--tg-theme-button-color); color: white; border: none; width: 100%; padding: 12px; border-radius: 10px; font-size: 18px; cursor: pointer; transition: 0.3s; }
-        #timer { font-size: 24px; color: #e74c3c; font-weight: bold; margin-bottom: 20px; }
-        .hidden { display: none; }
-        .option-btn { background: #f8f9fa; color: black; border: 1px solid #ddd; margin: 5px 0; text-align: left; font-size: 14px; }
-        .option-btn:active { background: #e0e0e0; }
-    </style>
-</head>
-<body>
-    <div id="home" class="card">
-        <h2 style="color: #0088cc;">Test Markazi</h2>
-        <p>Davom etish uchun test kodini kiriting:</p>
-        <input type="text" id="testCode" placeholder="Masalan: 777">
-        <button onclick="startTest()">Kirish</button>
-    </div>
-
-    <div id="quiz" class="card hidden">
-        <div id="timer">00:00</div>
-        <div id="questionBox">
-            <h3 id="qText">Savol yuklanmoqda...</h3>
-            <div id="options"></div>
-        </div>
-    </div>
-
-    <script>
-        let tg = window.Telegram.WebApp;
-        tg.expand();
-        let currentTest = null;
-        let timerInterval;
-
-        async function startTest() {
-            const code = document.getElementById('testCode').value;
-            // API orqali testni olish (Sizning hosting manzilingiz bo'ladi)
-            const response = await fetch(`/get_test/${code}`);
-            const data = await response.json();
-
-            if (data.error) return alert("Kod noto'g'ri!");
-
-            currentTest = data;
-            document.getElementById('home').classList.add('hidden');
-            document.getElementById('quiz').classList.remove('hidden');
-            
-            runTimer(data.time * 60);
-            showQuestion(0);
+        :root {
+            --bg-color: #f4f7f9;
+            --card-bg: #ffffff;
+            --text-main: #333333;
+            --accent-color: #0088cc;
+            --error-color: #e74c3c;
+            --success-color: #2ecc71;
         }
 
-        function runTimer(sec) {
-            timerInterval = setInterval(() => {
-                let m = Math.floor(sec / 60), s = sec % 60;
-                document.getElementById('timer').innerText = `${m}:${s < 10 ? '0'+s : s}`;
-                if (sec-- <= 0) finish(0);
-            }, 1000);
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 90vh;
         }
 
-        function showQuestion(idx) {
-            const q = currentTest.questions[idx];
-            document.getElementById('qText').innerText = q.q;
-            const optDiv = document.getElementById('options');
-            optDiv.innerHTML = "";
-            q.o.forEach(opt => {
-                const btn = document.createElement('button');
-                btn.className = "option-btn";
-                btn.innerText = opt;
-                btn.onclick = () => { /* Natijani hisoblash logikasi */ finish(1); };
-                optDiv.appendChild(btn);
-            });
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 450px;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+            text-align: center;
+            transition: all 0.3s ease;
         }
 
-        function finish(score) {
-            clearInterval(timerInterval);
-            tg.sendData(JSON.stringify({score: score, code: document.getElementById('testCode').value}));
-            tg.close();
+        h2 { color: var(--accent-color); margin-top: 0; }
+        
+        input {
+            width: 100%;
+            padding: 15px;
+            margin: 20px 0;
+            border: 2px solid #eee;
+            border-radius: 12px;
+            font-size: 18px;
+            box-sizing: border-box;
+            outline: none;
+            text-align: center;
         }
-    </script>
-</body>
-</html>
+
+        input:focus { border-color: var(--accent-color); }
+
+        button {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            width: 100%;
+            padding: 15px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,136,204,0.3);
+        }
+
+        button:active { transform: scale(0.98); }
+
+        #timer {
+            font-size: 28px;
+            color: var(--error-color);
+            font-weight: 800;
+            margin-bottom: 20px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .question-text {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 25px;
+            text-align: left;
+            line-height: 1.4;
+        }
+
+        .options-container {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .option-btn {
+            background: #fff;
+            color: #444;
+            border: 2px solid #f0f0f0;
+            padding: 14px;
+            text-align: left;
+            font-size: 16px;
+            font-weight: 500;
+            box-shadow: none;
+            transition: 0.2s;
+        }
+
+        .option-btn:hover { background: #f9f9f9; border-color: #ddd; }
+        .option-btn:active { background: #eef8ff; border-color: var(--accent-color);
+                            
