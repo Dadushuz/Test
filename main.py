@@ -4,13 +4,13 @@ import os
 import json
 import re
 import psycopg2
-import random  # ✅ Random kutubxonasi qo'shildi
+import random
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton, Update
 import uvicorn
 
 # --- SOZLAMALAR ---
@@ -21,9 +21,12 @@ try:
 except:
     ADMIN_ID = 129932291
 
-WEBAPP_URL = "https://test-fzug.onrender.com/static/index.html"
+# Render tomonidan beriladigan URL (avtomatik olinadi)
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL") 
+WEBAPP_URL = f"{RENDER_EXTERNAL_URL}/static/index.html" if RENDER_EXTERNAL_URL else "https://test-fzug.onrender.com/static/index.html"
+WEBHOOK_PATH = f"/webhook/{TOKEN}"
+WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
 
-# ✅ SUPABASE HAVOLASI (Port 6543)
 DATABASE_URL = "postgresql://postgres.zvtrujwsydewfcaotwvx:rkbfVJlp96S85bnu@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
 
 app = FastAPI()
@@ -59,38 +62,33 @@ if not os.path.exists("static"): os.makedirs("static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
-async def root(): return {"status": "🚀 Bot ishlayapti!"}
+async def root(): return {"status": "🚀 Bot Webhook rejimida ishlayapti!"}
+
+# Telegramdan keladigan xabarlarni qabul qilish nuqtasi
+@app.post(WEBHOOK_PATH)
+async def bot_webhook(request: Request):
+    update = Update.model_validate(await request.json(), context={"bot": bot})
+    await dp.feed_update(bot, update)
+    return {"ok": True}
 
 @app.get("/get_test/{code}")
 async def get_test(code: str):
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
-                # Test ma'lumotini olish
                 cur.execute("SELECT title, duration FROM tests WHERE code=%s", (code.strip(),))
                 test = cur.fetchone()
                 if not test: return {"error": "Test topilmadi"}
-                
-                # Savollarni olish
                 cur.execute("SELECT question, options, correct_answer FROM questions WHERE test_code=%s", (code.strip(),))
                 rows = cur.fetchall()
-                
                 questions = []
                 for r in rows:
-                    opts = json.loads(r[1]) # Variantlar ro'yxati
-                    random.shuffle(opts)    # ✅ Variantlarni aralashtiramiz (A, B, C o'rni almashadi)
-                    
-                    questions.append({
-                        "q": r[0], 
-                        "o": opts, 
-                        "a": r[2]
-                    })
-                
-                random.shuffle(questions) # ✅ Savollar ketma-ketligini aralashtiramiz
-                
+                    opts = json.loads(r[1])
+                    random.shuffle(opts)
+                    questions.append({"q": r[0], "o": opts, "a": r[2]})
+                random.shuffle(questions)
                 return {"title": test[0], "time": test[1], "questions": questions}
-    except Exception as e:
-        return {"error": f"Xato: {e}"}
+    except Exception as e: return {"error": f"Xato: {e}"}
 
 @app.post("/submit_result")
 async def submit(request: Request):
@@ -102,27 +100,23 @@ async def submit(request: Request):
                 cur.execute("INSERT INTO results (user_id, user_name, nickname, test_code, test_title, score, total, date) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                             (d.get('user_id'), clean(d.get('user_name')), d.get('nickname'), d.get('code'), d.get('title'), d.get('score'), d.get('total'), now))
                 conn.commit()
-        
         await bot.send_message(ADMIN_ID, f"🏆 <b>YANGI NATIJA</b>\n\n👤 {clean(d.get('user_name'))}\n📚 {clean(d.get('title'))}\n🎯 {d.get('score')} / {d.get('total')}", parse_mode="HTML")
         return {"status": "success"}
     except: return {"status": "error"}
 
-# --- BOT KOMANDALARI ---
+# --- BOT KOMANDALARI (Mavjud funksiyalaringiz) ---
 @dp.message(Command("start"))
 async def start(msg: types.Message):
     uid, name = msg.from_user.id, clean(msg.from_user.full_name)
     args = msg.text.split()
-    
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT invite_count FROM users WHERE user_id=%s", (uid,))
             user = cur.fetchone()
-            
             if not user:
                 inviter = int(args[1]) if len(args) > 1 and args[1].isdigit() and int(args[1]) != uid else None
                 cur.execute("INSERT INTO users (user_id, invited_by, invite_count, joined_at) VALUES (%s, %s, 0, %s)", 
                             (uid, inviter, datetime.now().strftime("%Y-%m-%d %H:%M")))
-                
                 if inviter:
                     cur.execute("UPDATE users SET invite_count = invite_count + 1 WHERE user_id=%s", (inviter,))
                     try: await bot.send_message(inviter, "🎉 <b>Do'stingiz qo'shildi!</b>", parse_mode="HTML")
@@ -131,8 +125,7 @@ async def start(msg: types.Message):
                 count = 0
                 try: await bot.send_message(ADMIN_ID, f"👤 <b>Yangi a'zo:</b> {name} (`{uid}`)", parse_mode="HTML")
                 except: pass
-            else:
-                count = user[0]
+            else: count = user[0]
 
     if uid == ADMIN_ID or count >= 3:
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
@@ -156,44 +149,21 @@ async def tests(msg: types.Message):
 async def rating(msg: types.Message):
     try: code = msg.text.split()[1]
     except: return await msg.answer("⚠️ Kodni yozing: `/rating 001`", parse_mode="Markdown")
-    
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT user_name, score, total FROM results WHERE test_code=%s ORDER BY score DESC, date ASC LIMIT 10", (code,))
             rows = cur.fetchall()
-    
     res = f"🏆 <b>Reyting {code}:</b>\n\n" + "\n".join([f"{i+1}. {clean(r[0])} — {r[1]}/{r[2]}" for i, r in enumerate(rows)]) if rows else "❌ Natijalar yo'q."
     await msg.answer(res, parse_mode="HTML")
-
-@dp.message(Command("users_count"))
-async def stats(msg: types.Message):
-    if msg.from_user.id != ADMIN_ID: return
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM users")
-            cnt = cur.fetchone()[0]
-    await msg.answer(f"📊 <b>Jami a'zolar:</b> {cnt}", parse_mode="HTML")
-
-@dp.message(Command("tanishbilish"))
-async def vip(msg: types.Message):
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("INSERT INTO users (user_id, invite_count) VALUES (%s, 3) ON CONFLICT (user_id) DO UPDATE SET invite_count=3", (msg.from_user.id,))
-            conn.commit()
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Testni Boshlash 📝", web_app=WebAppInfo(url=WEBAPP_URL))]])
-    await msg.answer("🤫 <b>VIP ruxsat berildi!</b>", reply_markup=kb, parse_mode="HTML")
-
-@dp.message(Command("admin"))
-async def admin(msg: types.Message):
-    if msg.from_user.id != ADMIN_ID: return
-    await msg.answer("🛠 <b>Admin Panel:</b>\n/tests - Testlar\n/users_count - Statistika\n/rating [kod] - Reyting\n\n📥 <b>Yuklash:</b> `Kod | Mavzu | Vaqt`", parse_mode="HTML")
 
 @dp.message(F.text.contains("|"))
 async def upload(msg: types.Message):
     if msg.from_user.id != ADMIN_ID: return
     lines = msg.text.split('\n')
     try:
-        code, title, time = map(str.strip, lines[0].split('|'))
+        parts = lines[0].split('|')
+        if len(parts) < 3: return
+        code, title, time = map(str.strip, parts)
         with get_db() as conn:
             with conn.cursor() as cur:
                 cur.execute("INSERT INTO tests (code, title, duration) VALUES (%s, %s, %s) ON CONFLICT (code) DO UPDATE SET title=%s, duration=%s", (code, title, int(time), title, int(time)))
@@ -207,11 +177,20 @@ async def upload(msg: types.Message):
     except Exception as e: await msg.answer(f"❌ Xato: {e}")
 
 # --- ISHGA TUSHIRISH ---
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
-    server = uvicorn.Server(config)
-    await asyncio.gather(dp.start_polling(bot), server.serve())
+@app.on_event("startup")
+async def on_startup():
+    # Renderda ishga tushganda webhookni o'rnatish
+    webhook_info = await bot.get_webhook_info()
+    if webhook_info.url != WEBHOOK_URL:
+        await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+    logging.info(f"🚀 Webhook o'rnatildi: {WEBHOOK_URL}")
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await bot.delete_webhook()
+    await bot.session.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Render uchun port sozlamasi
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
